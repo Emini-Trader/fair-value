@@ -34,8 +34,9 @@ def build_parser() -> argparse.ArgumentParser:
     rate = p.add_mutually_exclusive_group()
     rate.add_argument("--rate", type=float, help="annual interest rate as a decimal, e.g. 0.0533")
     rate.add_argument("--rate-percent", type=float, help="annual interest rate in percent, e.g. 5.33")
-    p.add_argument("--dividends", type=float, default=0.0,
-                   help="dividend points over the contract life (default: 0)")
+    p.add_argument("--dividends", type=float, default=None,
+                   help="dividend points over the contract life "
+                        "(default: 0, or fetched when --fetch is set)")
     p.add_argument("--expiry", type=_date,
                    help="override contract expiry YYYY-MM-DD (default: nearest 3rd Friday)")
     p.add_argument("--futures", type=float, help="observed futures price, for basis/mispricing")
@@ -59,9 +60,10 @@ def compute_from_namespace(ns: argparse.Namespace) -> FairValueReport:
     """Build a report from parsed args, fetching only if ``--fetch`` is set."""
     index = ns.index
     rate = _resolve_rate(ns)
+    dividends = ns.dividends
 
     if ns.fetch:
-        index, rate = _autofill(ns, index, rate)
+        index, rate, dividends = _autofill(ns, index, rate, dividends)
 
     if index is None:
         raise SystemExit("error: --index is required (or use --fetch)")
@@ -72,7 +74,7 @@ def compute_from_namespace(ns: argparse.Namespace) -> FairValueReport:
         as_of=ns.date,
         index_value=index,
         annual_rate=rate,
-        dividend_points=ns.dividends,
+        dividend_points=0.0 if dividends is None else dividends,
         expiry=ns.expiry,
         futures_price=ns.futures,
         days_per_year=ns.days_per_year,
@@ -80,32 +82,38 @@ def compute_from_namespace(ns: argparse.Namespace) -> FairValueReport:
     )
 
 
-def _autofill(ns, index, rate):  # pragma: no cover - exercised live, needs network
+def _autofill(ns, index, rate, dividends):  # pragma: no cover - needs network
     from .calendar import days_to_expiry, next_quarterly_settlement
     from .providers.fred import FredRateProvider
+    from .providers.total_return import TotalReturnDividendProvider
     from .providers.yahoo import SPX, YahooPriceProvider
 
     try:
+        expiry = ns.expiry or next_quarterly_settlement(ns.date, on_or_after=True)
+        days = days_to_expiry(ns.date, expiry)
         if index is None:
             index = YahooPriceProvider().close(SPX, ns.date)
         if rate is None:
-            expiry = ns.expiry or next_quarterly_settlement(ns.date, on_or_after=True)
-            rate = FredRateProvider().zero_rate(ns.date, days_to_expiry(ns.date, expiry))
+            rate = FredRateProvider().zero_rate(ns.date, days)
+        if dividends is None:
+            dividends = TotalReturnDividendProvider().dividend_points(
+                ns.date, expiry, index
+            )
     except Exception as exc:  # noqa: BLE001 - surface a friendly hint
         raise SystemExit(
             f"error: --fetch failed ({exc}). Are the data hosts on the network "
             "allowlist (fred.stlouisfed.org, query1/2.finance.yahoo.com)?"
         ) from exc
-    return index, rate
+    return index, rate, dividends
 
 
 def main(argv: list[str] | None = None) -> int:
     ns = build_parser().parse_args(argv)
     report = compute_from_namespace(ns)
     print(report)
-    if ns.dividends == 0.0 and not ns.fetch:
-        print("\nnote: dividend points defaulted to 0 -- pass --dividends for an "
-              "accurate premium.", file=sys.stderr)
+    if ns.dividends is None and not ns.fetch:
+        print("\nnote: dividend points defaulted to 0 -- pass --dividends or use "
+              "--fetch for an accurate premium.", file=sys.stderr)
     return 0
 
 

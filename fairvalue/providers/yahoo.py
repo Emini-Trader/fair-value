@@ -19,6 +19,7 @@ from typing import Callable
 
 #: Convenience symbols.
 SPX = "^GSPC"
+SPX_TOTAL_RETURN = "^SP500TR"
 ES_FRONT = "ES=F"
 
 Opener = Callable[[str, float], "object"]
@@ -81,12 +82,18 @@ class YahooPriceProvider:
         self._timeout = timeout
         self._lookback_days = lookback_days
 
-    def close(self, symbol: str, day: dt.date) -> float:
-        start = day - dt.timedelta(days=self._lookback_days)
-        url = chart_url(symbol, start, day)
+    def history(
+        self, symbol: str, start: dt.date, end: dt.date
+    ) -> list[tuple[dt.date, float]]:
+        """Daily closes for ``symbol`` over [start, end] as ``(date, close)`` rows."""
+        url = chart_url(symbol, start, end)
         with self._opener(url, self._timeout) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
-        value = close_on_or_before(parse_chart_json(payload), day)
+        return parse_chart_json(payload)
+
+    def close(self, symbol: str, day: dt.date) -> float:
+        rows = self.history(symbol, day - dt.timedelta(days=self._lookback_days), day)
+        value = close_on_or_before(rows, day)
         if value is None:
             raise RuntimeError(f"no {symbol} close available on/before {day}")
         return value

@@ -21,7 +21,12 @@ from .dividends import (
     estimate_dividend_points_from_yield,
 )
 from .fred import FredRateProvider, parse_fred_csv
-from .yahoo import ES_FRONT, SPX, YahooPriceProvider, parse_chart_json
+from .total_return import (
+    TotalReturnDividendProvider,
+    daily_dividend_points,
+    seasonal_forward_dividends,
+)
+from .yahoo import ES_FRONT, SPX, SPX_TOTAL_RETURN, YahooPriceProvider, parse_chart_json
 
 __all__ = [
     "DividendProvider",
@@ -34,8 +39,12 @@ __all__ = [
     "YahooPriceProvider",
     "parse_chart_json",
     "SPX",
+    "SPX_TOTAL_RETURN",
     "ES_FRONT",
     "ManualDividendProvider",
     "YieldDividendProvider",
     "estimate_dividend_points_from_yield",
+    "TotalReturnDividendProvider",
+    "daily_dividend_points",
+    "seasonal_forward_dividends",
 ]

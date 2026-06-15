@@ -112,8 +112,19 @@ Fair value for 2024-04-15  ->  ESM24 (exp 2024-06-21, 67 days)
   vs fair value        : -1.20 (cheap)
 ```
 
-Add `--fetch` to auto-fill the index and rate from Yahoo Finance + FRED (needs
-those hosts on the network allowlist; see below).
+### Fully autonomous (`--fetch`)
+
+With the data hosts on the network allowlist (see below), every input is fetched
+— no manual numbers, no indexarb:
+
+```bash
+python -m fairvalue --date 2026-06-15 --fetch
+```
+
+This pulls the SPX close (Yahoo `^GSPC`), interpolates the rate from FRED T-bill
+yields for the exact days to settlement, and estimates dividend points from the
+seasonal total-return method (`^SP500TR` vs `^GSPC`). Any input you pass
+explicitly (`--index`, `--rate`, `--dividends`, `--expiry`) overrides its fetch.
 
 ## Validation
 
@@ -145,18 +156,26 @@ sessions) and see `tests/test_validation.py`.
       dividend estimators — parsing/interpolation unit-tested offline; live
       fetch pending network allowlist.
 - [x] Holiday-aware settlement calendar (Good Friday / Juneteenth roll-back).
-- [x] Validated against published fair values (indexarb.com, 2026-05-29).
+- [x] Validated against published fair values (indexarb.com, 4 sessions).
+- [x] Autonomous `--fetch`: SPX + rate + dividends with no manual inputs.
 
 ### Data sources & network access
 
-Inputs and the free source each uses:
+The model is *index agnostic* and reproduces the formula exactly; the remaining
+question is sourcing each input for free. indexarb's proprietary deposit+Eurodollar
+curve and dividend-forecast database are gone, so these are the free stand-ins —
+a close, defensible estimate, not a bit-identical copy:
 
-| Input              | Source                          | Notes                                            |
-| ------------------ | ------------------------------- | ------------------------------------------------ |
-| Index (SPX)        | Yahoo `^GSPC`                   | long daily history                               |
-| Futures (ES)       | Yahoo `ES=F`                    | continuous front-month, recent years only        |
-| Interest rate      | FRED `DGS1MO/3MO/6MO/1`         | T-bill CMT, interpolated to exact days           |
-| Dividends          | manual / yield estimate         | no clean free feed; see `providers.dividends`    |
+| Input          | Source                         | Notes                                              |
+| -------------- | ------------------------------ | -------------------------------------------------- |
+| Index (SPX)    | Yahoo `^GSPC`                  | daily close                                        |
+| Interest rate  | FRED `DGS1MO/3MO/6MO/1`        | T-bill CMT, interpolated to the exact days         |
+| Dividends      | Yahoo `^SP500TR` vs `^GSPC`    | seasonal forward estimate; or `--dividends` manual |
+| Futures (ES)   | Yahoo `ES=F`                   | continuous front-month, recent years only          |
+
+The biggest accuracy driver is dividends (no free feed of forward dividend
+points); the total-return seasonal method captures ex-date seasonality without
+needing constituent data. See `fairvalue/providers/`.
 
 Live auto-fetch needs these hosts on the environment's **network allowlist**
 (egress is restricted by default): `fred.stlouisfed.org`,
