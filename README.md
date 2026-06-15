@@ -117,20 +117,24 @@ those hosts on the network allowlist; see below).
 
 ## Validation
 
-Reproduced against indexarb.com's "Fair Value Premium Decomposition" for
-**2026-05-29** (S&P 500, spot 7563.63), cross-checked with its yield-curve and
-dividend pages. Contract interest rates are interpolated from the published
-zero-coupon curve nodes — exactly as the source does — so the only inputs are
-spot, curve, and dividend amounts:
+Reproduced against indexarb.com's "Fair Value Premium Decomposition" across
+**four sessions (8 S&P 500 contracts): 2026-02-13, 03-11, 04-13, 05-29**,
+cross-checked with each day's yield-curve and dividend pages. Contract interest
+rates are interpolated from the published zero-coupon curve nodes — exactly as
+the source does — so the only inputs are spot, curve, and dividend amounts.
+**Every figure matches** (rates to 6 dp; interest and premiums to the cent),
+including a steep front-curve day (a 7.60% 31-day node on 03-11).
 
-| Contract | Days | Rate %      | Interest | Dividends | Fair value | indexarb |
-| -------- | ---- | ----------- | -------- | --------- | ---------- | -------- |
-| JUN 2026 | 20\* | 4.985022    | 20.19    | 5.923     | **14.27**  | 14.27    |
-| SEP 2026 | 112  | 3.967113    | 90.83    | 26.206    | **64.63**  | 64.63    |
+Example — 2026-05-29, S&P 500 spot 7563.63:
 
-Every figure matches (rates to 6 dp; premiums to the cent). `\*` June's 3rd
-Friday (the 19th) is Juneteenth, so settlement rolls back to the 18th — 20 days,
-not 21. See `examples/reproduce_2026_05_29.py` and `tests/test_validation.py`.
+| Contract | Days | Rate %   | Interest | Dividends | Fair value | indexarb |
+| -------- | ---- | -------- | -------- | --------- | ---------- | -------- |
+| JUN 2026 | 20\* | 4.985022 | 20.19    | 5.923     | **14.27**  | 14.27    |
+| SEP 2026 | 112  | 3.967113 | 90.83    | 26.206    | **64.63**  | 64.63    |
+
+`\*` June's 3rd Friday (the 19th) is Juneteenth, so settlement rolls back to the
+18th — 20 days, not 21. Run `python examples/reproduce_indexarb.py` (prints all
+sessions) and see `tests/test_validation.py`.
 
 ## Status / roadmap
 
