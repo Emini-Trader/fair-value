@@ -82,28 +82,66 @@ result = fair_value(
 
 print(result.fair_value_premium)   # the colloquial "fair value"
 print(result.fair_value_price)     # full theoretical futures price
-print(mispricing(5071.0, result.fair_value_price))  # observed future rich/cheap
+print(mispricing(5101.0, result.fair_value_price))  # observed future rich/cheap
 ```
 
 Convert a raw cash-dividend sum to index points with
 `dividend_points_from_cash(cash_sum, divisor)`. Back out market-implied inputs
 with `implied_rate(...)` and `implied_dividend_points(...)`.
 
+### Command line
+
+Compute a session from manual inputs (works offline):
+
+```bash
+python -m fairvalue --date 2024-04-15 --index 5061.82 \
+    --rate-percent 5.33 --dividends 8.1 --futures 5101.00
+```
+
+```
+Fair value for 2024-04-15  ->  ESM24 (exp 2024-06-21, 67 days)
+  index level         : 5061.82
+  interest rate        : 5.330%
+  interest component   : +48.48
+  dividend component   : +8.10  (points: 8.10)
+  --------------------------------------------
+  FAIR VALUE (premium) : +40.38
+  fair value price     : 5102.20
+  observed future      : 5101.00
+  observed basis       : +39.18
+  vs fair value        : -1.20 (cheap)
+```
+
+Add `--fetch` to auto-fill the index and rate from Yahoo Finance + FRED (needs
+those hosts on the network allowlist; see below).
+
 ## Status / roadmap
 
 - [x] Core fair value math (`fairvalue.core`) — pure, unit-tested.
 - [x] Quarterly expiration calendar (`fairvalue.calendar`).
-- [ ] Data providers (SPX / ES prices, interest rates, dividends) — see below.
+- [x] High-level calculator + CLI (`fairvalue.calculator`, `fairvalue.cli`).
+- [x] Data providers (`fairvalue.providers`): FRED rates, Yahoo prices,
+      dividend estimators — parsing/interpolation unit-tested offline; live
+      fetch pending network allowlist.
 - [ ] Historical-session validation against published fair value numbers.
 
 ### Data sources & network access
 
-Live "auto-fetch" of market data needs outbound access to data hosts. In a
-restricted environment only an allow-listed set of hosts is reachable; the
-common free sources (Yahoo Finance, FRED, Stooq, CBOE) may be blocked and need
-to be added to the environment's network egress settings. Providers are written
-behind a small interface so they can fall back to local CSV files when live
-fetch is unavailable.
+Inputs and the free source each uses:
+
+| Input              | Source                          | Notes                                            |
+| ------------------ | ------------------------------- | ------------------------------------------------ |
+| Index (SPX)        | Yahoo `^GSPC`                   | long daily history                               |
+| Futures (ES)       | Yahoo `ES=F`                    | continuous front-month, recent years only        |
+| Interest rate      | FRED `DGS1MO/3MO/6MO/1`         | T-bill CMT, interpolated to exact days           |
+| Dividends          | manual / yield estimate         | no clean free feed; see `providers.dividends`    |
+
+Live auto-fetch needs these hosts on the environment's **network allowlist**
+(egress is restricted by default): `fred.stlouisfed.org`,
+`query1.finance.yahoo.com`, `query2.finance.yahoo.com`. Until then, pass inputs
+manually (the CLI and `compute_fair_value` work fully offline). The live
+providers each accept an injectable `opener`, so their logic stays unit-tested
+without a network. Changing the allowlist takes effect in a **new** session.
 
 ## Development
 
