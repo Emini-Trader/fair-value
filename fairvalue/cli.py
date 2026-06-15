@@ -81,7 +81,7 @@ def compute_from_namespace(ns: argparse.Namespace) -> FairValueReport:
 
 
 def _autofill(ns, index, rate):  # pragma: no cover - exercised live, needs network
-    from .calendar import days_to_expiry, next_quarterly_expiration
+    from .calendar import days_to_expiry, next_quarterly_settlement
     from .providers.fred import FredRateProvider
     from .providers.yahoo import SPX, YahooPriceProvider
 
@@ -89,7 +89,7 @@ def _autofill(ns, index, rate):  # pragma: no cover - exercised live, needs netw
         if index is None:
             index = YahooPriceProvider().close(SPX, ns.date)
         if rate is None:
-            expiry = ns.expiry or next_quarterly_expiration(ns.date, on_or_after=True)
+            expiry = ns.expiry or next_quarterly_settlement(ns.date, on_or_after=True)
             rate = FredRateProvider().zero_rate(ns.date, days_to_expiry(ns.date, expiry))
     except Exception as exc:  # noqa: BLE001 - surface a friendly hint
         raise SystemExit(

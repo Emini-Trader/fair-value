@@ -15,7 +15,7 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 
-from .calendar import contract_code, days_to_expiry, next_quarterly_expiration
+from .calendar import contract_code, days_to_expiry, next_quarterly_settlement
 from .core import DEFAULT_DAYS_PER_YEAR, basis, fair_value, mispricing
 
 
@@ -82,17 +82,17 @@ def compute_fair_value(
         dividend_points: Dividends over the contract's remaining life, in index
             points (divisor-adjusted).
         expiry: Override the contract expiration date. By default the nearest
-            quarterly (3rd-Friday) expiration on/after ``as_of`` is used -- i.e.
-            the front-month contract. Note real desks roll to the next contract
-            in the ~week before expiry; pass ``expiry`` explicitly to match a
-            specific contract during roll week.
+            quarterly settlement on/after ``as_of`` is used -- the 3rd Friday,
+            rolled back off an exchange holiday (e.g. Juneteenth). Note real
+            desks roll to the next contract in the ~week before expiry; pass
+            ``expiry`` explicitly to match a specific contract during roll week.
         futures_price: If given, the report also reports observed basis and the
             futures' richness/cheapness vs fair value.
         days_per_year: Day-count basis (365 by convention).
         root: Contract root for the symbol label (default "ES").
     """
     if expiry is None:
-        expiry = next_quarterly_expiration(as_of, on_or_after=True)
+        expiry = next_quarterly_settlement(as_of, on_or_after=True)
     days = days_to_expiry(as_of, expiry)
 
     fv = fair_value(

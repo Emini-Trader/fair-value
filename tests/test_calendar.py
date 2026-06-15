@@ -52,3 +52,46 @@ def test_contract_code():
     assert cal.contract_code(dt.date(2024, 6, 21)) == "ESM24"
     assert cal.contract_code(dt.date(2024, 12, 20), root="SP") == "SPZ24"
     assert cal.contract_code(dt.date(2025, 3, 21)) == "ESH25"
+
+
+@pytest.mark.parametrize(
+    "year,expected",
+    [
+        (2024, dt.date(2024, 3, 29)),
+        (2025, dt.date(2025, 4, 18)),
+        (2026, dt.date(2026, 4, 3)),
+    ],
+)
+def test_good_friday(year, expected):
+    assert cal.good_friday(year) == expected
+
+
+@pytest.mark.parametrize(
+    "year,expected",
+    [
+        (2026, dt.date(2026, 6, 19)),  # Friday -> itself
+        (2022, dt.date(2022, 6, 20)),  # Sunday -> observed Monday
+        (2027, dt.date(2027, 6, 18)),  # Saturday -> observed Friday
+    ],
+)
+def test_juneteenth_observed(year, expected):
+    assert cal.juneteenth_observed(year) == expected
+
+
+def test_settlement_rolls_back_off_juneteenth():
+    # 3rd Friday of June 2026 is June 19 = Juneteenth -> settle Thursday June 18.
+    assert cal.third_friday(2026, 6) == dt.date(2026, 6, 19)
+    assert cal.settlement_date(2026, 6) == dt.date(2026, 6, 18)
+
+
+def test_settlement_unaffected_when_friday_is_open():
+    assert cal.settlement_date(2026, 9) == dt.date(2026, 9, 18)  # 3rd Friday, open
+    assert cal.settlement_date(2024, 6) == dt.date(2024, 6, 21)  # Juneteenth was Wed
+
+
+def test_next_quarterly_settlement_uses_adjusted_dates():
+    assert cal.next_quarterly_settlement(dt.date(2026, 5, 29)) == dt.date(2026, 6, 18)
+    assert (
+        cal.next_quarterly_settlement(dt.date(2026, 6, 18), on_or_after=False)
+        == dt.date(2026, 9, 18)
+    )

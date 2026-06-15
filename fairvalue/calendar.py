@@ -33,6 +33,66 @@ def is_quarterly_expiration(day: dt.date) -> bool:
     return day.month in QUARTERLY_MONTHS and day == third_friday(day.year, day.month)
 
 
+# --- Holiday handling -------------------------------------------------------
+#
+# Final settlement is normally the 3rd Friday, but when that Friday is an
+# exchange holiday the settlement (SOQ) moves to the previous trading day. Two
+# holidays can land on a quarterly 3rd Friday: Good Friday (March cycle) and
+# Juneteenth (June cycle, a market holiday since 2022). June 19, 2026 is exactly
+# this case -- it is a Friday and Juneteenth -- so the June 2026 contract settles
+# Thursday June 18, giving 20 (not 21) days from May 29.
+
+
+def easter_sunday(year: int) -> dt.date:
+    """Gregorian Easter Sunday (Anonymous / Meeus algorithm)."""
+    a = year % 19
+    b, c = divmod(year, 100)
+    d, e = divmod(b, 4)
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = divmod(c, 4)
+    ell = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * ell) // 451
+    month = (h + ell - 7 * m + 114) // 31
+    day = (h + ell - 7 * m + 114) % 31 + 1
+    return dt.date(year, month, day)
+
+
+def good_friday(year: int) -> dt.date:
+    """Good Friday (Easter Sunday minus two days)."""
+    return easter_sunday(year) - dt.timedelta(days=2)
+
+
+def juneteenth_observed(year: int) -> dt.date:
+    """Observed Juneteenth holiday (shifts off a weekend to the nearest weekday)."""
+    day = dt.date(year, 6, 19)
+    if day.weekday() == 5:  # Saturday -> observed Friday
+        return day - dt.timedelta(days=1)
+    if day.weekday() == 6:  # Sunday -> observed Monday
+        return day + dt.timedelta(days=1)
+    return day
+
+
+def is_exchange_holiday(day: dt.date) -> bool:
+    """Whether US equity markets are closed for a holiday that can coincide with
+    a quarterly 3rd Friday (Good Friday, or Juneteenth from 2022 onward)."""
+    if day == good_friday(day.year):
+        return True
+    if day.year >= 2022 and day == juneteenth_observed(day.year):
+        return True
+    return False
+
+
+def settlement_date(year: int, month: int) -> dt.date:
+    """Quarterly settlement date: the 3rd Friday, rolled back to the previous
+    trading day when that Friday is an exchange holiday."""
+    day = third_friday(year, month)
+    while day.weekday() >= 5 or is_exchange_holiday(day):
+        day -= dt.timedelta(days=1)
+    return day
+
+
 def next_quarterly_expiration(as_of: dt.date, *, on_or_after: bool = True) -> dt.date:
     """Soonest quarterly expiration on/after (or strictly after) ``as_of``.
 
@@ -51,6 +111,23 @@ def next_quarterly_expiration(as_of: dt.date, *, on_or_after: bool = True) -> dt
         if (day >= as_of) if on_or_after else (day > as_of):
             return day
     raise RuntimeError("no expiration found (should be unreachable)")
+
+
+def next_quarterly_settlement(as_of: dt.date, *, on_or_after: bool = True) -> dt.date:
+    """Soonest quarterly *settlement* (holiday-adjusted) on/after ``as_of``.
+
+    Like :func:`next_quarterly_expiration` but accounts for the settlement
+    rolling back off an exchange holiday, matching the dates used for fair value.
+    """
+    candidates = sorted(
+        settlement_date(year, month)
+        for year in (as_of.year, as_of.year + 1)
+        for month in QUARTERLY_MONTHS
+    )
+    for day in candidates:
+        if (day >= as_of) if on_or_after else (day > as_of):
+            return day
+    raise RuntimeError("no settlement found (should be unreachable)")
 
 
 def days_to_expiry(as_of: dt.date, expiry: dt.date) -> int:

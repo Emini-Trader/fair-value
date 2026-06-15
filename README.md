@@ -115,6 +115,23 @@ Fair value for 2024-04-15  ->  ESM24 (exp 2024-06-21, 67 days)
 Add `--fetch` to auto-fill the index and rate from Yahoo Finance + FRED (needs
 those hosts on the network allowlist; see below).
 
+## Validation
+
+Reproduced against indexarb.com's "Fair Value Premium Decomposition" for
+**2026-05-29** (S&P 500, spot 7563.63), cross-checked with its yield-curve and
+dividend pages. Contract interest rates are interpolated from the published
+zero-coupon curve nodes — exactly as the source does — so the only inputs are
+spot, curve, and dividend amounts:
+
+| Contract | Days | Rate %      | Interest | Dividends | Fair value | indexarb |
+| -------- | ---- | ----------- | -------- | --------- | ---------- | -------- |
+| JUN 2026 | 20\* | 4.985022    | 20.19    | 5.923     | **14.27**  | 14.27    |
+| SEP 2026 | 112  | 3.967113    | 90.83    | 26.206    | **64.63**  | 64.63    |
+
+Every figure matches (rates to 6 dp; premiums to the cent). `\*` June's 3rd
+Friday (the 19th) is Juneteenth, so settlement rolls back to the 18th — 20 days,
+not 21. See `examples/reproduce_2026_05_29.py` and `tests/test_validation.py`.
+
 ## Status / roadmap
 
 - [x] Core fair value math (`fairvalue.core`) — pure, unit-tested.
@@ -123,7 +140,8 @@ those hosts on the network allowlist; see below).
 - [x] Data providers (`fairvalue.providers`): FRED rates, Yahoo prices,
       dividend estimators — parsing/interpolation unit-tested offline; live
       fetch pending network allowlist.
-- [ ] Historical-session validation against published fair value numbers.
+- [x] Holiday-aware settlement calendar (Good Friday / Juneteenth roll-back).
+- [x] Validated against published fair values (indexarb.com, 2026-05-29).
 
 ### Data sources & network access
 
