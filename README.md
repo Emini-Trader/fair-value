@@ -154,10 +154,13 @@ sessions) and see `tests/test_validation.py`.
 - [x] High-level calculator + CLI (`fairvalue.calculator`, `fairvalue.cli`).
 - [x] Data providers (`fairvalue.providers`): FRED rates, Yahoo prices,
       dividend estimators — parsing/interpolation unit-tested offline; live
-      fetch pending network allowlist.
+      fetch verified end-to-end (see below).
 - [x] Holiday-aware settlement calendar (Good Friday / Juneteenth roll-back).
 - [x] Validated against published fair values (indexarb.com, 4 sessions).
 - [x] Autonomous `--fetch`: SPX + rate + dividends with no manual inputs.
+- [x] Live data fetch verified end-to-end with the hosts on the network
+      allowlist — `python examples/live_fetch_demo.py` exercises all three
+      providers (Yahoo + FRED) and prints a full session.
 
 ### Data sources & network access
 
@@ -179,8 +182,13 @@ needing constituent data. See `fairvalue/providers/`.
 
 Live auto-fetch needs these hosts on the environment's **network allowlist**
 (egress is restricted by default): `fred.stlouisfed.org`,
-`query1.finance.yahoo.com`, `query2.finance.yahoo.com`. Until then, pass inputs
-manually (the CLI and `compute_fair_value` work fully offline). The live
+`query1.finance.yahoo.com`, `query2.finance.yahoo.com`. With them allowlisted,
+the full pipeline has been **verified live end-to-end** — e.g. for `2026-06-15`
+`python -m fairvalue --date 2026-06-15 --session` fetches SPX `7431.46` (Yahoo),
+interpolates `3.690%` / `3.781%` (FRED) and estimates `1.37` / `21.27` dividend
+points for the ESM26/ESU26 contracts, with no manual inputs. Re-run the check
+anytime with `python examples/live_fetch_demo.py`. Without the allowlist, pass
+inputs manually (the CLI and `compute_fair_value` work fully offline); the live
 providers each accept an injectable `opener`, so their logic stays unit-tested
 without a network. Changing the allowlist takes effect in a **new** session.
 
