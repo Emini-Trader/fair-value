@@ -5,10 +5,12 @@ constant-maturity yields, then interpolates to the exact number of days
 remaining in the futures contract -- the practical, free modern proxy for the
 zero-coupon financing curve referenced in the fair value methodology.
 
-T-bill yields are risk-free and sit *below* the financing rate indexarb uses, so
-an optional ``funding_spread`` (see :data:`DEFAULT_FUNDING_SPREAD`) lifts the
-curve onto an approximate funding rate -- calibrated to reproduce indexarb's
-front-contract fair value to within ~1 point outside of roll week.
+T-bill yields are risk-free and sit *below* the financing rate indexarb uses;
+this provider gives the clean risk-free rate. To source the funding rate
+instead, back it out of the live future with
+:func:`fairvalue.compute_implied_repo` (no constant needed). An optional manual
+``funding_spread`` (off by default) is available for callers who want to add a
+known spread.
 
 Network note: ``fred.stlouisfed.org`` must be on the environment's network
 allowlist. The CSV parsing and rate interpolation are pure and unit-tested; the
@@ -31,17 +33,15 @@ FRED_TENORS: dict[str, float] = {
     "DGS1": 365.0,
 }
 
-#: Empirical financing spread (decimal) added on top of the risk-free T-bill
-#: curve to approximate the *funding* rate referenced by indexarb's fair value
-#: (a deposit + short-term-rate-futures curve). FRED ``DGS*`` are risk-free
-#: Treasury yields, which sit below the rate at which an arbitrage desk actually
-#: finances the basket; equity repo / term funding runs ~0.5% above T-bills.
-#: Calibrated to indexarb's published S&P 500 *front-contract* fair values
-#: (4 sessions, contracts >30 days to expiry), where the residual rate gap is a
-#: stable +0.56..0.57%. NOTE: in the last ~3 weeks before expiry the front sits
-#: on a quarter-end/turn hump that needs ~+1.3% -- not captured by a constant;
-#: bump ``funding_spread`` during roll week or roll to the next contract.
-DEFAULT_FUNDING_SPREAD: float = 0.0055
+#: Optional financing spread (decimal) added on top of the risk-free T-bill
+#: curve. FRED ``DGS*`` are risk-free Treasury yields, which sit below the rate
+#: at which an arbitrage desk actually finances the basket. This knob is **off
+#: by default** (0.0): a single constant cannot track the funding premium, which
+#: varies 0.5-1.3% by date/tenor. To source the funding rate *without* a
+#: constant, use :func:`fairvalue.compute_implied_repo`, which backs the rate out
+#: of the live future itself. ``funding_spread`` remains available for callers
+#: who want to apply a known manual spread.
+DEFAULT_FUNDING_SPREAD: float = 0.0
 
 Opener = Callable[[str, float], "object"]
 

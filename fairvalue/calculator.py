@@ -53,7 +53,8 @@ class FairValueReport:
             f"  fair value price     : {self.fair_value_price:.2f}",
         ]
         if self.futures_price is not None:
-            verdict = "rich" if (self.mispricing or 0) > 0 else "cheap"
+            mp = self.mispricing or 0.0
+            verdict = "fair" if abs(mp) < 0.005 else ("rich" if mp > 0 else "cheap")
             lines += [
                 f"  observed future      : {self.futures_price:.2f}",
                 f"  observed basis       : {self.observed_basis:+.2f}",

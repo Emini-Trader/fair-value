@@ -4,7 +4,8 @@ import datetime as dt
 
 import pytest
 
-from fairvalue.session import compute_session
+from fairvalue.core import fair_value
+from fairvalue.session import compute_implied_repo, compute_session
 
 
 class _Price:
@@ -15,6 +16,18 @@ class _Price:
     def close(self, symbol, day):
         self.calls += 1
         return self.value
+
+
+class _SymPrice:
+    """Returns a different close per symbol (e.g. cash vs future)."""
+
+    def __init__(self, prices):
+        self.prices = prices
+        self.seen = []
+
+    def close(self, symbol, day):
+        self.seen.append(symbol)
+        return self.prices[symbol]
 
 
 class _Rate:
@@ -60,3 +73,23 @@ def test_session_n_contracts_one():
                               n_contracts=1)
     assert len(reports) == 1
     assert reports[0].contract == "ESM26"
+
+
+def test_implied_repo_premium_equals_basis_and_is_self_fair():
+    price = _SymPrice({"^GSPC": 7600.0, "ES=F": 7625.0})
+    rep = compute_implied_repo(dt.date(2026, 6, 15), price, _Div())
+    # fair value price equals the future by construction; premium is the basis
+    assert rep.fair_value_price == pytest.approx(7625.0)
+    assert rep.fair_value_premium == pytest.approx(25.0)
+    assert rep.mispricing == pytest.approx(0.0, abs=1e-9)
+    # the backed-out rate, fed forward, round-trips to the same future
+    fv = fair_value(7600.0, rep.annual_rate, rep.days_to_expiry, rep.dividend_points)
+    assert fv.fair_value_price == pytest.approx(7625.0)
+
+
+def test_implied_repo_honours_explicit_futures_price():
+    # ES=F would be 9999, but an explicit --futures must win and skip the fetch
+    price = _SymPrice({"^GSPC": 7600.0, "ES=F": 9999.0})
+    rep = compute_implied_repo(dt.date(2026, 6, 15), price, _Div(), futures_price=7625.0)
+    assert rep.fair_value_price == pytest.approx(7625.0)
+    assert "ES=F" not in price.seen
