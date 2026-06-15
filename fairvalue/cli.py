@@ -44,7 +44,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="day-count basis (default: 365)")
     p.add_argument("--root", default="ES", help="contract root for the symbol label (default: ES)")
     p.add_argument("--fetch", action="store_true",
-                   help="auto-fill missing index/rate from FRED + Yahoo (needs network allowlist)")
+                   help="auto-fill missing index/rate/dividends from FRED + Yahoo "
+                        "(needs network allowlist)")
+    p.add_argument("--session", action="store_true",
+                   help="print both active quarterly contracts (front + next), "
+                        "fetching all inputs (needs network allowlist)")
     return p
 
 
@@ -107,8 +111,31 @@ def _autofill(ns, index, rate, dividends):  # pragma: no cover - needs network
     return index, rate, dividends
 
 
+def _run_session(ns):  # pragma: no cover - needs network
+    from .providers.fred import FredRateProvider
+    from .providers.total_return import TotalReturnDividendProvider
+    from .providers.yahoo import YahooPriceProvider
+    from .session import compute_session
+
+    try:
+        return compute_session(
+            ns.date, YahooPriceProvider(), FredRateProvider(),
+            TotalReturnDividendProvider(), days_per_year=ns.days_per_year, root=ns.root,
+        )
+    except Exception as exc:  # noqa: BLE001 - surface a friendly hint
+        raise SystemExit(
+            f"error: --session failed ({exc}). Are the data hosts on the network "
+            "allowlist (fred.stlouisfed.org, query1/2.finance.yahoo.com)?"
+        ) from exc
+
+
 def main(argv: list[str] | None = None) -> int:
     ns = build_parser().parse_args(argv)
+    if ns.session:
+        for report in _run_session(ns):
+            print(report)
+            print()
+        return 0
     report = compute_from_namespace(ns)
     print(report)
     if ns.dividends is None and not ns.fetch:

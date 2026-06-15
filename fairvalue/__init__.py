@@ -13,6 +13,7 @@ Public API::
 from __future__ import annotations
 
 from .calculator import FairValueReport, compute_fair_value
+from .session import compute_session
 from .core import (
     DEFAULT_DAYS_PER_YEAR,
     FairValueResult,
@@ -30,6 +31,7 @@ __all__ = [
     "FairValueResult",
     "FairValueReport",
     "compute_fair_value",
+    "compute_session",
     "basis",
     "dividend_points_from_cash",
     "fair_value",
