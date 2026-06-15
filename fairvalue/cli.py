@@ -49,6 +49,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--session", action="store_true",
                    help="print both active quarterly contracts (front + next), "
                         "fetching all inputs (needs network allowlist)")
+    p.add_argument("--funding-spread-bps", type=float, default=55.0,
+                   help="financing spread in basis points added to the fetched "
+                        "T-bill rate, lifting it onto an approximate funding rate "
+                        "(default: 55; calibrated to indexarb's front contract). "
+                        "Only affects --fetch / --session.")
     return p
 
 
@@ -98,7 +103,9 @@ def _autofill(ns, index, rate, dividends):  # pragma: no cover - needs network
         if index is None:
             index = YahooPriceProvider().close(SPX, ns.date)
         if rate is None:
-            rate = FredRateProvider().zero_rate(ns.date, days)
+            rate = FredRateProvider(
+                funding_spread=ns.funding_spread_bps / 10000.0
+            ).zero_rate(ns.date, days)
         if dividends is None:
             dividends = TotalReturnDividendProvider().dividend_points(
                 ns.date, expiry, index
@@ -119,7 +126,8 @@ def _run_session(ns):  # pragma: no cover - needs network
 
     try:
         return compute_session(
-            ns.date, YahooPriceProvider(), FredRateProvider(),
+            ns.date, YahooPriceProvider(),
+            FredRateProvider(funding_spread=ns.funding_spread_bps / 10000.0),
             TotalReturnDividendProvider(), days_per_year=ns.days_per_year, root=ns.root,
         )
     except Exception as exc:  # noqa: BLE001 - surface a friendly hint

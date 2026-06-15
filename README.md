@@ -45,7 +45,8 @@ Notes that match the reference methodology:
 - **Interest / cost of carry** is based on a zero-coupon yield curve (built
   from deposit rates and short-term-rate futures), interpolated to the exact
   number of days remaining. A short T-bill / SOFR rate is a practical modern
-  proxy.
+  proxy — but a *risk-free* one, so the autonomous fetch adds a small **funding
+  spread** to reach the financing rate desks actually pay (see Validation).
 - **Dividends** use actually declared or forecast cash amounts (not yields)
   whose ex-date falls in the remaining life of the contract, normalised by the
   index divisor. This is more accurate — and more *seasonal* — than a flat
@@ -147,6 +148,29 @@ Example — 2026-05-29, S&P 500 spot 7563.63:
 18th — 20 days, not 21. Run `python examples/reproduce_indexarb.py` (prints all
 sessions) and see `tests/test_validation.py`.
 
+### Autonomous accuracy (front contract)
+
+The table above feeds indexarb's *own* curve nodes. The fully autonomous
+`--fetch` sources the rate itself — and a free risk-free T-bill curve sits
+~0.5–1.3% below indexarb's financing curve. Input attribution shows almost the
+entire residual is the **rate** (not spot or dividends), so FRED `DGS*` is
+lifted by a calibrated **funding spread** (`--funding-spread-bps`, default 55)
+onto an approximate funding rate. Against indexarb's published **front-contract**
+fair values, fully autonomous (live Yahoo spot + dividends + FRED + 55 bp):
+
+| Session    | Front | Days | FV (autonomous) | indexarb | Δ      |
+| ---------- | ----- | ---- | --------------- | -------- | ------ |
+| 2026-02-13 | MAR   | 35   | 16.62           | 16.68    | −0.06  |
+| 2026-04-13 | JUN   | 66   | 36.75           | 37.03    | −0.28  |
+| 2026-03-11 | MAR   | 9    | 3.92            | 5.15     | −1.23  |
+| 2026-05-29 | JUN   | 20   | 11.30           | 14.27    | −2.97  |
+
+Outside the last ~3 weeks the front lands **within ~1 point**. In roll week it
+sits on a quarter-end/turn hump (the 5.7%/7.6% 31-day nodes) that needs ~+1.3%
+— not sourceable for free; bump `--funding-spread-bps` or roll to the next
+contract. Deferred contracts stay a few points light (same rate gap × longer
+horizon), so this calibration deliberately targets the front.
+
 ## Status / roadmap
 
 - [x] Core fair value math (`fairvalue.core`) — pure, unit-tested.
@@ -161,6 +185,9 @@ sessions) and see `tests/test_validation.py`.
 - [x] Live data fetch verified end-to-end with the hosts on the network
       allowlist — `python examples/live_fetch_demo.py` exercises all three
       providers (Yahoo + FRED) and prints a full session.
+- [x] Calibrated funding spread (`--funding-spread-bps`, default 55): lifts the
+      risk-free T-bill curve onto a funding rate, putting the autonomous front
+      fair value within ~1 point of indexarb outside roll week.
 
 ### Data sources & network access
 
@@ -172,7 +199,7 @@ a close, defensible estimate, not a bit-identical copy:
 | Input          | Source                         | Notes                                              |
 | -------------- | ------------------------------ | -------------------------------------------------- |
 | Index (SPX)    | Yahoo `^GSPC`                  | daily close                                        |
-| Interest rate  | FRED `DGS1MO/3MO/6MO/1`        | T-bill CMT, interpolated to the exact days         |
+| Interest rate  | FRED `DGS1MO/3MO/6MO/1`        | T-bill CMT, interpolated; + funding spread (`--funding-spread-bps`, def. 55) |
 | Dividends      | Yahoo `^SP500TR` vs `^GSPC`    | seasonal forward estimate; or `--dividends` manual |
 | Futures (ES)   | Yahoo `ES=F`                   | continuous front-month, recent years only          |
 

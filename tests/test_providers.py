@@ -68,6 +68,25 @@ def test_fred_rate_provider_interpolates_from_fake_feed():
     assert rate == pytest.approx(0.053697, abs=1e-5)
 
 
+def test_fred_funding_spread_lifts_zero_rate():
+    values = {"DGS1MO": 5.40, "DGS3MO": 5.35, "DGS6MO": 5.20, "DGS1": 4.90}
+
+    def opener(url, timeout):
+        for sid, val in values.items():
+            if f"id={sid}" in url:
+                return FakeResp(f"observation_date,{sid}\n2024-04-12,{val}\n")
+        return FakeResp("observation_date,X\n2024-04-12,.\n")
+
+    base_rate = fred.FredRateProvider(opener=opener).zero_rate(dt.date(2024, 4, 15), 67)
+    # the spread is added on top of the interpolated curve, in decimal
+    lifted = fred.FredRateProvider(
+        opener=opener, funding_spread=0.0055
+    ).zero_rate(dt.date(2024, 4, 15), 67)
+    assert lifted == pytest.approx(base_rate + 0.0055, abs=1e-9)
+    # the raw curve knots are unaffected by the spread
+    assert lifted == pytest.approx(0.059197, abs=1e-5)
+
+
 # --- Yahoo ------------------------------------------------------------------
 
 def _ts(d: dt.date) -> int:

@@ -5,6 +5,11 @@ constant-maturity yields, then interpolates to the exact number of days
 remaining in the futures contract -- the practical, free modern proxy for the
 zero-coupon financing curve referenced in the fair value methodology.
 
+T-bill yields are risk-free and sit *below* the financing rate indexarb uses, so
+an optional ``funding_spread`` (see :data:`DEFAULT_FUNDING_SPREAD`) lifts the
+curve onto an approximate funding rate -- calibrated to reproduce indexarb's
+front-contract fair value to within ~1 point outside of roll week.
+
 Network note: ``fred.stlouisfed.org`` must be on the environment's network
 allowlist. The CSV parsing and rate interpolation are pure and unit-tested; the
 HTTP fetch takes an injectable ``opener`` so it can be tested without a network.
@@ -25,6 +30,18 @@ FRED_TENORS: dict[str, float] = {
     "DGS6MO": 182.0,
     "DGS1": 365.0,
 }
+
+#: Empirical financing spread (decimal) added on top of the risk-free T-bill
+#: curve to approximate the *funding* rate referenced by indexarb's fair value
+#: (a deposit + short-term-rate-futures curve). FRED ``DGS*`` are risk-free
+#: Treasury yields, which sit below the rate at which an arbitrage desk actually
+#: finances the basket; equity repo / term funding runs ~0.5% above T-bills.
+#: Calibrated to indexarb's published S&P 500 *front-contract* fair values
+#: (4 sessions, contracts >30 days to expiry), where the residual rate gap is a
+#: stable +0.56..0.57%. NOTE: in the last ~3 weeks before expiry the front sits
+#: on a quarter-end/turn hump that needs ~+1.3% -- not captured by a constant;
+#: bump ``funding_spread`` during roll week or roll to the next contract.
+DEFAULT_FUNDING_SPREAD: float = 0.0055
 
 Opener = Callable[[str, float], "object"]
 
@@ -84,11 +101,13 @@ class FredRateProvider:
         opener: Opener = _default_opener,
         timeout: float = 15.0,
         lookback_days: int = 10,
+        funding_spread: float = 0.0,
     ) -> None:
         self.tenors = tenors or dict(FRED_TENORS)
         self._opener = opener
         self._timeout = timeout
         self._lookback_days = lookback_days
+        self.funding_spread = funding_spread
 
     def _fetch_latest(self, series_id: str, as_of: dt.date) -> float | None:
         start = as_of - dt.timedelta(days=self._lookback_days)
@@ -109,5 +128,9 @@ class FredRateProvider:
         return points
 
     def zero_rate(self, as_of: dt.date, days: float) -> float:
-        """Interpolated annualised rate (decimal) for ``days`` as of ``as_of``."""
-        return interpolate_rate(self.curve(as_of), days)
+        """Interpolated annualised rate (decimal) for ``days`` as of ``as_of``.
+
+        Adds :attr:`funding_spread` to convert the risk-free T-bill curve into
+        an approximate financing rate (see :data:`DEFAULT_FUNDING_SPREAD`).
+        """
+        return interpolate_rate(self.curve(as_of), days) + self.funding_spread

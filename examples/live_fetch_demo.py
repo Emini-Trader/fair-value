@@ -25,7 +25,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from fairvalue import compute_session  # noqa: E402
 from fairvalue.calendar import days_to_expiry, next_quarterly_settlement  # noqa: E402
-from fairvalue.providers.fred import FredRateProvider  # noqa: E402
+from fairvalue.providers.fred import DEFAULT_FUNDING_SPREAD, FredRateProvider  # noqa: E402
 from fairvalue.providers.total_return import TotalReturnDividendProvider  # noqa: E402
 from fairvalue.providers.yahoo import SPX, YahooPriceProvider  # noqa: E402
 
@@ -41,7 +41,7 @@ def main(argv: list[str] | None = None) -> int:
     as_of = dt.date.fromisoformat(argv[0]) if argv else dt.date.today()
 
     price = YahooPriceProvider()
-    rate = FredRateProvider()
+    rate = FredRateProvider(funding_spread=DEFAULT_FUNDING_SPREAD)
     divs = TotalReturnDividendProvider()
 
     try:
@@ -53,7 +53,8 @@ def main(argv: list[str] | None = None) -> int:
 
         print(f"Live autonomous fetch for {as_of}")
         print(f"  Yahoo  ^GSPC close          : {spot:.2f}")
-        print(f"  FRED   {front_days}d interpolated rate : {front_rate * 100:.4f}%")
+        print(f"  FRED   {front_days}d rate +{DEFAULT_FUNDING_SPREAD * 1e4:.0f}bp funding : "
+              f"{front_rate * 100:.4f}%")
         print(f"  next settlement              : {front_expiry} ({front_days} days)\n")
 
         reports = compute_session(as_of, price, rate, divs)
