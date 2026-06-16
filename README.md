@@ -152,13 +152,16 @@ price the front with the rate implied by the **next** (deferred) contract, which
 is independent of the front:
 
 ```bash
-python -m fairvalue --date 2026-06-15 --deferred-repo
+python -m fairvalue --date 2026-06-15 --deferred-repo            # same-day spot
+python -m fairvalue --date 2026-06-15 --deferred-repo --prior-close  # indexarb's
 ```
 
 The front fair value is no longer pinned to the front future, so the basis vs
 fair value is a genuine rich/cheap signal. The deferred future carries the same
 market funding rate (within ~0.5% of indexarb on the validation sessions), at
-the cost of not seeing the front's own ~1-month curve hump.
+the cost of not seeing the front's own ~1-month curve hump. Add `--prior-close`
+to reproduce indexarb's overnight convention (session-D fair value off the D-1
+close); see Validation.
 
 ## Validation
 
@@ -225,19 +228,26 @@ either dead (Eurodollar) or have no free history (SOFR futures). The market
 To get that rate **without** the circularity, `--deferred-repo` prices the front
 with the implied repo of the **next** contract (independent of the front), so the
 basis vs fair value is a real rich/cheap signal. Front FV, fully autonomous, vs
-indexarb (auto-growth dividends run ~+1, hence partly the gap):
+indexarb. One timing detail matters: indexarb computes its session-D fair value
+from the **prior** session's close (verified — its 2026-05-29 spot 7563.63 is our
+2026-05-28 close), counting days/dividends from D. `--prior-close` matches that.
+Front FV, fully autonomous, with that convention:
 
-| Session    | rate % (deferred) | FV (deferred-repo) | indexarb | Δ      |
-| ---------- | ----------------- | ------------------ | -------- | ------ |
-| 2026-02-13 | 4.27              | 15.86              | 16.68    | −0.82  |
-| 2026-04-13 | 4.32              | 36.58              | 37.03    | −0.45  |
-| 2026-03-11 | 4.33              | 3.75               | 5.15     | −1.40  |
-| 2026-05-29 | 4.58              | 12.19              | 14.27    | −2.08  |
+| Session       | spot (D-1) | rate % | FV (deferred-repo) | indexarb | Δ      |
+| ------------- | ---------- | ------ | ------------------ | -------- | ------ |
+| 2026-02-13    | 6832.76    | 4.46   | 17.08              | 16.68    | +0.40  |
+| 2026-04-13    | 6816.89    | 4.41   | 37.14              | 37.03    | +0.11  |
+| 2026-03-11    | 6781.48    | 4.43   | 3.92               | 5.15     | −1.23  |
+| 2026-05-29    | 7563.63    | 4.73   | 12.75              | 14.27    | −1.52  |
+| 2026-06-03 \* | 7609.78    | 4.66   | 9.24               | 9.93     | −0.69  |
 
-The deferred funding rate matches indexarb within ~0.5% except on the two days
-whose front sits on a ~1-month curve hump (03-11, 05-29) — a hump no free
-instrument carries. Unlike front implied repo this is **non-circular**, so it is
-the model to use for a real rich/cheap read.
+The spot now ties out to indexarb's to the cent. The deferred funding rate
+matches within ~0.5% except on the two days whose front sits on a ~1-month curve
+hump (03-11, 05-29) — a hump no free instrument carries. Non-hump residual is
+**±0.4**; mean −0.59 across the five. `\*` 2026-06-03 is fully **out of sample**
+(only its 9.93 FV was supplied, no curve/dividend page). Unlike front implied
+repo this is **non-circular**, so it is the model to use for a real rich/cheap
+read.
 
 ## Status / roadmap
 
@@ -260,6 +270,9 @@ the model to use for a real rich/cheap read.
 - [x] `--deferred-repo`: prices the front with the next contract's implied
       funding rate (independent of the front) — non-circular, so it yields a real
       rich/cheap signal while staying within ~0.5% of indexarb's rate.
+- [x] `--prior-close`: indexarb's overnight convention (session-D fair value off
+      the D-1 close) — ties spot out to indexarb's to the cent; full front FV
+      lands within ±0.4 off the hump days, validated out-of-sample on 2026-06-03.
 
 ### Data sources & network access
 

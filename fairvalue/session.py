@@ -58,6 +58,7 @@ def compute_implied_repo(
     spx_symbol: str = "^GSPC",
     futures_symbol: str = "ES=F",
     expiry: dt.date | None = None,
+    price_date: dt.date | None = None,
     days_per_year: float = DEFAULT_DAYS_PER_YEAR,
     root: str = "ES",
 ) -> FairValueReport:
@@ -83,15 +84,18 @@ def compute_implied_repo(
     The index and (for live use) the front future are fetched from the price
     provider; pass ``futures_price`` to pin a specific contract during roll week,
     when the continuous ``ES=F`` has already rolled to the next contract.
+    ``price_date`` sources the spot/future from a different date than ``as_of``
+    (the horizon) -- e.g. indexarb's overnight convention prices off the prior
+    session's close; days and dividends still run from ``as_of``.
     """
     if expiry is None:
         expiry = next_quarterly_settlement(as_of, on_or_after=True)
     days = days_to_expiry(as_of, expiry)
-    index = price_provider.close(spx_symbol, as_of)
+    index = price_provider.close(spx_symbol, price_date or as_of)
     futures = (
         futures_price
         if futures_price is not None
-        else price_provider.close(futures_symbol, as_of)
+        else price_provider.close(futures_symbol, price_date or as_of)
     )
     dividends = dividend_provider.dividend_points(as_of, expiry, index)
     rate = implied_rate(index, futures, days, dividends, days_per_year=days_per_year)
@@ -110,6 +114,7 @@ def compute_with_deferred_repo(
     deferred_futures: float | None = None,
     spx_symbol: str = "^GSPC",
     front_futures_symbol: str = "ES=F",
+    price_date: dt.date | None = None,
     days_per_year: float = DEFAULT_DAYS_PER_YEAR,
     root: str = "ES",
 ) -> FairValueReport:
@@ -127,15 +132,18 @@ def compute_with_deferred_repo(
     hump. The deferred contract's Yahoo symbol (e.g. ``ESU26.CME``) is built from
     its expiry; pass ``deferred_futures`` / ``front_futures`` to override either
     print (e.g. during roll week, when ``ES=F`` has rolled to the next contract).
+    ``price_date`` sources every price from a different date than ``as_of`` (the
+    horizon) -- e.g. indexarb prices its session-D fair value off the D-1 close.
     """
+    price_date = price_date or as_of
     front_expiry = next_quarterly_settlement(as_of, on_or_after=True)
     deferred_expiry = next_quarterly_settlement(front_expiry, on_or_after=False)
-    index = price_provider.close(spx_symbol, as_of)
+    index = price_provider.close(spx_symbol, price_date)
 
     # Rate: implied repo of the deferred contract (does not depend on the front).
     if deferred_futures is None:
         deferred_symbol = f"{contract_code(deferred_expiry, root=root)}.CME"
-        deferred_futures = price_provider.close(deferred_symbol, as_of)
+        deferred_futures = price_provider.close(deferred_symbol, price_date)
     deferred_days = days_to_expiry(as_of, deferred_expiry)
     deferred_div = dividend_provider.dividend_points(as_of, deferred_expiry, index)
     rate = implied_rate(
@@ -145,7 +153,7 @@ def compute_with_deferred_repo(
     # Price the FRONT with that rate; its own future is only the basis reference.
     front_div = dividend_provider.dividend_points(as_of, front_expiry, index)
     if front_futures is None:
-        front_futures = price_provider.close(front_futures_symbol, as_of)
+        front_futures = price_provider.close(front_futures_symbol, price_date)
     return compute_fair_value(
         as_of, index, rate, front_div, expiry=front_expiry,
         futures_price=front_futures, days_per_year=days_per_year, root=root,

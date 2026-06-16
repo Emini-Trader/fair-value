@@ -64,6 +64,11 @@ def build_parser() -> argparse.ArgumentParser:
                         "fetched risk-free T-bill rate (default: 0). Only affects "
                         "--fetch / --session; --implied-repo sources the funding "
                         "rate from the future itself.")
+    p.add_argument("--prior-close", action="store_true",
+                   help="price off the PRIOR session's close (indexarb's overnight "
+                        "convention: the session-D fair value uses the D-1 close as "
+                        "spot, days/dividends still from D). Affects --implied-repo "
+                        "/ --deferred-repo.")
     return p
 
 
@@ -73,6 +78,11 @@ def _resolve_rate(ns: argparse.Namespace) -> float | None:
     if ns.rate_percent is not None:
         return ns.rate_percent / 100.0
     return None
+
+
+def _prior_close_date(ns: argparse.Namespace) -> dt.date | None:
+    """Prior-calendar-day for --prior-close (close_on_or_before handles weekends)."""
+    return ns.date - dt.timedelta(days=1) if ns.prior_close else None
 
 
 def compute_from_namespace(ns: argparse.Namespace) -> FairValueReport:
@@ -156,6 +166,7 @@ def _run_implied_repo(ns):  # pragma: no cover - needs network
         return compute_implied_repo(
             ns.date, YahooPriceProvider(), TotalReturnDividendProvider(),
             futures_price=ns.futures, expiry=ns.expiry,
+            price_date=_prior_close_date(ns),
             days_per_year=ns.days_per_year, root=ns.root,
         )
     except Exception as exc:  # noqa: BLE001 - surface a friendly hint
@@ -173,7 +184,8 @@ def _run_deferred_repo(ns):  # pragma: no cover - needs network
     try:
         return compute_with_deferred_repo(
             ns.date, YahooPriceProvider(), TotalReturnDividendProvider(),
-            front_futures=ns.futures, days_per_year=ns.days_per_year, root=ns.root,
+            front_futures=ns.futures, price_date=_prior_close_date(ns),
+            days_per_year=ns.days_per_year, root=ns.root,
         )
     except Exception as exc:  # noqa: BLE001 - surface a friendly hint
         raise SystemExit(
