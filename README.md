@@ -143,8 +143,22 @@ python -m fairvalue --date 2026-06-15 --implied-repo
 
 The fair value premium then equals the futures basis and reproduces indexarb's
 published premium to within end-of-day timing noise (see Validation). By the same
-identity the future is fair against itself, so use `--fetch` for an independent
-rich/cheap read.
+identity the future is fair against itself, so it gives no rich/cheap read.
+
+### Deferred repo — a real rich/cheap signal (`--deferred-repo`)
+
+To get the funding-rate accuracy of implied repo *without* the circularity,
+price the front with the rate implied by the **next** (deferred) contract, which
+is independent of the front:
+
+```bash
+python -m fairvalue --date 2026-06-15 --deferred-repo
+```
+
+The front fair value is no longer pinned to the front future, so the basis vs
+fair value is a genuine rich/cheap signal. The deferred future carries the same
+market funding rate (within ~0.5% of indexarb on the validation sessions), at
+the cost of not seeing the front's own ~1-month curve hump.
 
 ## Validation
 
@@ -197,8 +211,33 @@ The implied rate tracks indexarb to within ~0.6% (vs 0.5–1.3% *light* for
 risk-free) and even captures the front turn-hump (5.38% on 05-29, *above*
 indexarb), with **no systematic bias** — the residual ±1–2 points is end-of-day
 timing (Yahoo close vs indexarb's intraday snapshot). The identity's flip side:
-this future is *fair against itself* (mispricing 0 by construction), so keep the
-risk-free `--fetch` when you want an independent rich/cheap signal.
+this future is *fair against itself* (mispricing 0 by construction).
+
+#### The rate curve, and the non-circular model (`--deferred-repo`)
+
+indexarb's published yield curve confirms why no free rate feed reproduces it: it
+is a piecewise-linear **funding** curve (deposit + Eurodollar) through an
+overnight node, a humped ~1-month node (the 5.7% / 7.6% spikes), and **IMM-date
+nodes** (3rd-Wednesday SOFR/Eurodollar-future expiries) — instruments that are
+either dead (Eurodollar) or have no free history (SOFR futures). The market
+*funding* rate is only recoverable from the futures themselves.
+
+To get that rate **without** the circularity, `--deferred-repo` prices the front
+with the implied repo of the **next** contract (independent of the front), so the
+basis vs fair value is a real rich/cheap signal. Front FV, fully autonomous, vs
+indexarb (auto-growth dividends run ~+1, hence partly the gap):
+
+| Session    | rate % (deferred) | FV (deferred-repo) | indexarb | Δ      |
+| ---------- | ----------------- | ------------------ | -------- | ------ |
+| 2026-02-13 | 4.27              | 15.86              | 16.68    | −0.82  |
+| 2026-04-13 | 4.32              | 36.58              | 37.03    | −0.45  |
+| 2026-03-11 | 4.33              | 3.75               | 5.15     | −1.40  |
+| 2026-05-29 | 4.58              | 12.19              | 14.27    | −2.08  |
+
+The deferred funding rate matches indexarb within ~0.5% except on the two days
+whose front sits on a ~1-month curve hump (03-11, 05-29) — a hump no free
+instrument carries. Unlike front implied repo this is **non-circular**, so it is
+the model to use for a real rich/cheap read.
 
 ## Status / roadmap
 
@@ -218,6 +257,9 @@ risk-free `--fetch` when you want an independent rich/cheap signal.
       no rate feed or constant — reproduces indexarb's front premium to within
       end-of-day timing noise (±1–2 pts) and captures the funding/turn premium
       that a risk-free rate misses.
+- [x] `--deferred-repo`: prices the front with the next contract's implied
+      funding rate (independent of the front) — non-circular, so it yields a real
+      rich/cheap signal while staying within ~0.5% of indexarb's rate.
 
 ### Data sources & network access
 

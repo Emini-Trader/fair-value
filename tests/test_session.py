@@ -4,8 +4,12 @@ import datetime as dt
 
 import pytest
 
-from fairvalue.core import fair_value
-from fairvalue.session import compute_implied_repo, compute_session
+from fairvalue.core import fair_value, implied_rate
+from fairvalue.session import (
+    compute_implied_repo,
+    compute_session,
+    compute_with_deferred_repo,
+)
 
 
 class _Price:
@@ -93,3 +97,16 @@ def test_implied_repo_honours_explicit_futures_price():
     rep = compute_implied_repo(dt.date(2026, 6, 15), price, _Div(), futures_price=7625.0)
     assert rep.fair_value_price == pytest.approx(7625.0)
     assert "ES=F" not in price.seen
+
+
+def test_deferred_repo_prices_front_non_circularly():
+    # for 2026-06-15: front = ESM26 (Jun 18), deferred = ESU26 (Sep 18, 95 days)
+    price = _SymPrice({"^GSPC": 7600.0, "ES=F": 7625.0, "ESU26.CME": 7700.0})
+    rep = compute_with_deferred_repo(dt.date(2026, 6, 15), price, _Div())
+    assert rep.contract == "ESM26"                       # the FRONT is priced
+    assert rep.futures_price == pytest.approx(7625.0)    # front future = basis ref
+    assert "ESU26.CME" in price.seen                     # rate fetched from deferred
+    # the rate is the deferred contract's implied repo, not the front's
+    assert rep.annual_rate == pytest.approx(implied_rate(7600.0, 7700.0, 95, 0.10 * 95))
+    # so the front is NOT fair against itself -> a genuine rich/cheap signal
+    assert abs(rep.mispricing) > 1.0

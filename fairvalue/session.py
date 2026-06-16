@@ -11,7 +11,7 @@ from __future__ import annotations
 import datetime as dt
 
 from .calculator import FairValueReport, compute_fair_value
-from .calendar import days_to_expiry, next_quarterly_settlement
+from .calendar import contract_code, days_to_expiry, next_quarterly_settlement
 from .core import DEFAULT_DAYS_PER_YEAR, implied_rate
 from .providers.base import DividendProvider, PriceProvider, RateProvider
 
@@ -98,4 +98,55 @@ def compute_implied_repo(
     return compute_fair_value(
         as_of, index, rate, dividends,
         expiry=expiry, futures_price=futures, days_per_year=days_per_year, root=root,
+    )
+
+
+def compute_with_deferred_repo(
+    as_of: dt.date,
+    price_provider: PriceProvider,
+    dividend_provider: DividendProvider,
+    *,
+    front_futures: float | None = None,
+    deferred_futures: float | None = None,
+    spx_symbol: str = "^GSPC",
+    front_futures_symbol: str = "ES=F",
+    days_per_year: float = DEFAULT_DAYS_PER_YEAR,
+    root: str = "ES",
+) -> FairValueReport:
+    """Front fair value priced with the funding rate of the *next* contract.
+
+    Backs the financing rate out of the deferred (next-quarter) future -- which
+    is *independent of the front* -- and prices the front contract with it. So,
+    unlike front :func:`compute_implied_repo`, the front fair value is **not**
+    pinned to the front future: the basis vs fair value is a genuine rich/cheap
+    signal (non-circular).
+
+    The deferred future carries the same market funding rate indexarb's curve
+    uses (within ~0.5% across the validation sessions, vs ~1.3% light for a
+    risk-free rate), at the cost of not seeing the front's own ~1-month curve
+    hump. The deferred contract's Yahoo symbol (e.g. ``ESU26.CME``) is built from
+    its expiry; pass ``deferred_futures`` / ``front_futures`` to override either
+    print (e.g. during roll week, when ``ES=F`` has rolled to the next contract).
+    """
+    front_expiry = next_quarterly_settlement(as_of, on_or_after=True)
+    deferred_expiry = next_quarterly_settlement(front_expiry, on_or_after=False)
+    index = price_provider.close(spx_symbol, as_of)
+
+    # Rate: implied repo of the deferred contract (does not depend on the front).
+    if deferred_futures is None:
+        deferred_symbol = f"{contract_code(deferred_expiry, root=root)}.CME"
+        deferred_futures = price_provider.close(deferred_symbol, as_of)
+    deferred_days = days_to_expiry(as_of, deferred_expiry)
+    deferred_div = dividend_provider.dividend_points(as_of, deferred_expiry, index)
+    rate = implied_rate(
+        index, deferred_futures, deferred_days, deferred_div, days_per_year=days_per_year
+    )
+
+    # Price the FRONT with that rate; its own future is only the basis reference.
+    front_div = dividend_provider.dividend_points(as_of, front_expiry, index)
+    if front_futures is None:
+        front_futures = price_provider.close(front_futures_symbol, as_of)
+    return compute_fair_value(
+        as_of, index, rate, front_div, expiry=front_expiry,
+        futures_price=front_futures, days_per_year=days_per_year, root=root,
     )

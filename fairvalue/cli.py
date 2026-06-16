@@ -54,6 +54,11 @@ def build_parser() -> argparse.ArgumentParser:
                         "(ES=F, or --futures) instead of sourcing a rate; the "
                         "fair value premium then equals the futures basis "
                         "(needs network allowlist)")
+    p.add_argument("--deferred-repo", action="store_true",
+                   help="price the FRONT using the funding rate implied by the "
+                        "next (deferred) contract -- independent of the front, so "
+                        "the basis vs fair value is a real rich/cheap signal "
+                        "(needs network allowlist)")
     p.add_argument("--funding-spread-bps", type=float, default=0.0,
                    help="optional financing spread in basis points added to the "
                         "fetched risk-free T-bill rate (default: 0). Only affects "
@@ -160,6 +165,23 @@ def _run_implied_repo(ns):  # pragma: no cover - needs network
         ) from exc
 
 
+def _run_deferred_repo(ns):  # pragma: no cover - needs network
+    from .providers.total_return import TotalReturnDividendProvider
+    from .providers.yahoo import YahooPriceProvider
+    from .session import compute_with_deferred_repo
+
+    try:
+        return compute_with_deferred_repo(
+            ns.date, YahooPriceProvider(), TotalReturnDividendProvider(),
+            front_futures=ns.futures, days_per_year=ns.days_per_year, root=ns.root,
+        )
+    except Exception as exc:  # noqa: BLE001 - surface a friendly hint
+        raise SystemExit(
+            f"error: --deferred-repo failed ({exc}). Are the data hosts on the "
+            "network allowlist (query1/2.finance.yahoo.com)?"
+        ) from exc
+
+
 def main(argv: list[str] | None = None) -> int:
     ns = build_parser().parse_args(argv)
     if ns.session:
@@ -171,6 +193,12 @@ def main(argv: list[str] | None = None) -> int:
         print("Implied-repo fair value (rate backed out of the front future; "
               "premium = basis, so the future is fair against itself):\n")
         print(_run_implied_repo(ns))
+        return 0
+    if ns.deferred_repo:
+        print("Front fair value priced with the next contract's implied funding "
+              "rate (independent of the front -> basis vs fair value is a real "
+              "rich/cheap signal):\n")
+        print(_run_deferred_repo(ns))
         return 0
     report = compute_from_namespace(ns)
     print(report)
