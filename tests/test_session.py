@@ -108,7 +108,50 @@ def test_deferred_repo_prices_front_non_circularly():
     assert rep.futures_price == pytest.approx(7625.0)    # explicit front contract
     assert "ESM26.CME" in price.seen                     # front fetched explicitly
     assert "ESU26.CME" in price.seen                     # rate fetched from deferred
+    # consistent spot/futures -> the deferred implied repo is used (best match)
+    assert rep.rate_source == "deferred_implied_repo"
     # the rate is the deferred contract's implied repo, not the front's
     assert rep.annual_rate == pytest.approx(implied_rate(7600.0, 7700.0, 126, 0.10 * 126))
     # so the front is NOT fair against itself -> a genuine rich/cheap signal
     assert abs(rep.mispricing) > 1.0
+
+
+def test_deferred_repo_falls_back_to_calendar_rate_when_spot_is_stale():
+    # The reported bug: a stale cash spot inflates the deferred implied repo
+    # (~4.6% -> ~8%) and doubles the fair value. 2026-06-16: front = ESU26
+    # (Sep 18, 94d), deferred = ESZ26 (Dec 18, 185d). Build two MUTUALLY
+    # CONSISTENT futures at 4.6% from a "true" spot, then feed a 2%-stale spot.
+    true_spot, r = 7600.0, 0.046
+    f_front = fair_value(true_spot, r, 94, 0.10 * 94).fair_value_price
+    f_def = fair_value(true_spot, r, 185, 0.10 * 185).fair_value_price
+    stale = true_spot * 0.98
+    price = _SymPrice({"^GSPC": stale, "ESU26.CME": f_front, "ESZ26.CME": f_def})
+
+    rep = compute_with_deferred_repo(dt.date(2026, 6, 16), price, _Div())
+
+    assert rep.contract == "ESU26"
+    assert rep.rate_source == "calendar_spread"            # guard tripped -> spot-free
+    assert rep.annual_rate == pytest.approx(r, abs=1e-6)   # 4.6%, not the inflated ~8%
+    # the naive deferred-zero rate really would have blown past the guard...
+    naive = implied_rate(stale, f_def, 185, 0.10 * 185)
+    assert naive - r > 0.015
+    # ...and would have ~doubled the fair value; the fallback keeps it sane.
+    naive_fv = fair_value(stale, naive, 94, 0.10 * 94).fair_value_premium
+    assert rep.fair_value_premium < naive_fv - 20
+
+
+def test_deferred_repo_max_rate_divergence_is_tunable():
+    # With an infinite tolerance the guard never trips: even a stale spot keeps
+    # the (blown-up) deferred implied repo. Proves the fallback is what changes
+    # the result above, and that the knob is honoured.
+    true_spot, r = 7600.0, 0.046
+    f_front = fair_value(true_spot, r, 94, 0.10 * 94).fair_value_price
+    f_def = fair_value(true_spot, r, 185, 0.10 * 185).fair_value_price
+    stale = true_spot * 0.98
+    price = _SymPrice({"^GSPC": stale, "ESU26.CME": f_front, "ESZ26.CME": f_def})
+
+    rep = compute_with_deferred_repo(
+        dt.date(2026, 6, 16), price, _Div(), max_rate_divergence=float("inf")
+    )
+    assert rep.rate_source == "deferred_implied_repo"
+    assert rep.annual_rate == pytest.approx(implied_rate(stale, f_def, 185, 0.10 * 185))

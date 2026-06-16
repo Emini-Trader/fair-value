@@ -177,6 +177,53 @@ def implied_rate(
     return base ** (days_per_year / days_to_expiry) - 1.0
 
 
+def implied_forward_rate(
+    near_price: float,
+    near_dividend_points: float,
+    near_days: float,
+    far_price: float,
+    far_dividend_points: float,
+    far_days: float,
+    days_per_year: float = DEFAULT_DAYS_PER_YEAR,
+) -> float:
+    """Financing rate implied by *two* futures on the same index -- free of spot.
+
+    A single index level ``S`` underlies both contracts, so writing the fair
+    value identity for each leg and dividing makes ``S`` cancel:
+
+        near + near_div = S * (1 + f) ** (near_days / B)
+        far  + far_div  = S * (1 + f) ** (far_days  / B)
+        ------------------------------------------------------------------
+        (far + far_div) / (near + near_div) = (1 + f) ** ((far - near) / B)
+
+    so the rate comes purely from the two futures prices and their dividend
+    points -- the cash index never enters. This is the calendar-spread (forward)
+    financing rate for the period between the two settlements. Because it does
+    not divide by spot, it is immune to a stale or inconsistent cash-index print
+    (the failure mode that blows up :func:`implied_rate`); see
+    :func:`fairvalue.session.compute_with_deferred_repo`.
+
+    Args:
+        near_price: Price of the nearer (front) future.
+        near_dividend_points: Dividend points over the near contract's life.
+        near_days: Calendar days from valuation to the near settlement.
+        far_price: Price of the farther (deferred) future.
+        far_dividend_points: Dividend points over the far contract's life.
+        far_days: Calendar days from valuation to the far settlement.
+        days_per_year: Day-count basis (365 by convention).
+
+    Returns:
+        The annualised forward financing rate as a decimal.
+    """
+    if far_days <= near_days:
+        raise ValueError("far_days must be greater than near_days")
+    near = near_price + near_dividend_points
+    far = far_price + far_dividend_points
+    if near <= 0 or far <= 0:
+        raise ValueError("price + dividend_points must be positive for both legs")
+    return (far / near) ** (days_per_year / (far_days - near_days)) - 1.0
+
+
 def implied_dividend_points(
     index_value: float,
     futures_price: float,

@@ -249,6 +249,40 @@ hump (03-11, 05-29) — a hump no free instrument carries. Non-hump residual is
 repo this is **non-circular**, so it is the model to use for a real rich/cheap
 read.
 
+#### Spot-robustness: a stale `^GSPC` can't blow up the rate
+
+The deferred implied repo divides by the cash spot:
+
+```
+r = ((deferred + dividends) / spot) ^ (365 / deferred_days) − 1
+```
+
+The exponent (~3 for a ~120-day deferred) *amplifies* any spot/future
+inconsistency. Yahoo sometimes publishes a stale `^GSPC` against fresh futures;
+the false basis then sent the rate from ~4.6% to ~8% and **doubled** the fair
+value (~65 → ~130). Anchoring dates only papers over it — the amplification is
+inherent to dividing by spot.
+
+The fix uses the same financing rate, measured a second, **spot-free** way: the
+*calendar spread* between the two futures
+(`core.implied_forward_rate`). Writing the fair value identity for each contract
+and dividing makes the cash index cancel:
+
+```
+(1 + r) ^ ((deferred_days − front_days)/365) = (deferred + div_d) / (front + div_f)
+```
+
+so the rate comes purely from the two futures — a stale spot can't touch it.
+`compute_with_deferred_repo` keeps the deferred implied repo as primary (it best
+matches indexarb), but cross-checks it against this spot-free rate; when they
+diverge by more than `max_rate_divergence` (default **1.5%**) — which only
+happens when the spot is inconsistent — it falls back to the spot-free rate and
+flags `rate_source="calendar_spread"`. On all 19 validation sessions the two
+agree to **≤0.3%** (the curve's own slope), an order of magnitude below the
+guard, so every validated number above is unchanged; on the stale-spot incident
+the two diverged by ~3.6% and the fall-back held the rate at ~4.6% (FV ~65). Run
+`examples/validate_fair_value.py` (prints the per-session rate gap).
+
 ## Status / roadmap
 
 - [x] Core fair value math (`fairvalue.core`) — pure, unit-tested.
@@ -276,6 +310,10 @@ read.
 - [x] `--prior-close`: indexarb's overnight convention (session-D fair value off
       the D-1 close) — ties spot out to indexarb's to the cent; full front FV
       lands within ±0.4 off the hump days, validated out-of-sample on 2026-06-03.
+- [x] Spot-robust rate (`core.implied_forward_rate`): the deferred implied repo
+      is cross-checked against the spot-free futures calendar spread and falls
+      back to it when a stale `^GSPC` would otherwise inflate the rate (and double
+      the fair value). Validated numbers are unchanged (rates agree to ≤0.3%).
 
 ### Data sources & network access
 

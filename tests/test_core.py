@@ -75,6 +75,41 @@ def test_implied_dividend_points_round_trips():
     assert d == pytest.approx(8.0, abs=1e-9)
 
 
+def test_implied_forward_rate_recovers_the_curve_rate():
+    # Two futures generated from one spot at a single rate r must imply that r,
+    # using only the two futures prices (no spot passed in).
+    spot, r = 6800.0, 0.046
+    near = core.fair_value(spot, r, 30, dividend_points=7.0)
+    far = core.fair_value(spot, r, 120, dividend_points=28.0)
+    f = core.implied_forward_rate(
+        near.fair_value_price, 7.0, 30, far.fair_value_price, 28.0, 120
+    )
+    assert f == pytest.approx(r, abs=1e-9)
+
+
+def test_implied_forward_rate_is_independent_of_spot():
+    # The whole point: a stale/different cash spot must not move the rate. Build
+    # the two futures from a *different* spot at the same r; the forward rate is
+    # unchanged because it divides futures by futures, never by spot.
+    r = 0.046
+    for spot in (6800.0, 7563.63, 5000.0):
+        near = core.fair_value(spot, r, 20, dividend_points=5.9)
+        far = core.fair_value(spot, r, 112, dividend_points=26.2)
+        f = core.implied_forward_rate(
+            near.fair_value_price, 5.9, 20, far.fair_value_price, 26.2, 112
+        )
+        assert f == pytest.approx(r, abs=1e-9)
+
+
+def test_implied_forward_rate_rejects_bad_horizons_and_legs():
+    with pytest.raises(ValueError):  # far must be strictly beyond near
+        core.implied_forward_rate(6800.0, 5.0, 100, 6850.0, 25.0, 100)
+    with pytest.raises(ValueError):
+        core.implied_forward_rate(6800.0, 5.0, 120, 6850.0, 25.0, 30)
+    with pytest.raises(ValueError):  # price + dividends must be positive
+        core.implied_forward_rate(-10.0, 0.0, 30, 6850.0, 25.0, 120)
+
+
 def test_continuous_vs_discrete_sanity():
     # The reference equation uses annual compounding (1+r)^(d/B). For a
     # sub-year horizon (d < B) that curve is convex in time and therefore sits

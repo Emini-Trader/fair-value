@@ -72,6 +72,7 @@ def build(session: dt.date, price_date: dt.date,
         "days_to_expiry": rep.days_to_expiry,
         "spot": round(rep.index_value, 2),
         "rate_pct": round(rep.annual_rate * 100, 3),
+        "rate_source": rep.rate_source,
         "dividend_points": round(rep.dividend_points, 2),
         "interest_component": round(rep.interest_component, 2),
         "dividend_component": round(rep.dividend_component, 2),
@@ -110,9 +111,18 @@ def main(argv: list[str] | None = None) -> int:
                 f"Cash index data lags the futures; pricing off the latest "
                 f"consistent close ({price_date})."
             )
-        # Sanity guard: an implausible implied rate means the spot and futures
-        # quotes are inconsistent (e.g. a stale/glitched print). Flag, don't hide.
-        if data.get("ok") and not (0.5 <= data["rate_pct"] <= 7.0):
+        # When the cash spot is stale/inconsistent with the futures, the
+        # deferred implied repo blows up; compute_with_deferred_repo detects this
+        # (deferred-zero vs spot-free calendar rate diverge) and falls back to the
+        # spot-free rate. Surface that so the fair value is trusted but the spot
+        # caveat is visible. A residual band check stays as a final backstop.
+        if data.get("ok") and data.get("rate_source") == "calendar_spread":
+            data["warning"] = (
+                "Cash index looked stale/inconsistent with the futures, so the "
+                "financing rate was taken from the futures calendar spread "
+                "(spot-free) instead of the deferred implied repo."
+            )
+        elif data.get("ok") and not (0.5 <= data["rate_pct"] <= 7.0):
             data["warning"] = (
                 f"Implied funding rate {data['rate_pct']:.2f}% is outside the "
                 f"normal range — likely a stale or inconsistent spot/futures quote."

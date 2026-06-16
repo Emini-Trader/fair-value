@@ -38,6 +38,7 @@ class FairValueReport:
     futures_price: float | None = None  # observed future, if supplied
     observed_basis: float | None = None  # futures_price - index
     mispricing: float | None = None  # futures_price - fair_value_price
+    rate_source: str | None = None  # how annual_rate was obtained (provenance)
 
     def __str__(self) -> str:  # pragma: no cover - cosmetic formatting
         lines = [
