@@ -1,0 +1,40 @@
+name: Update fair value
+
+# Recompute the front fair value for the next session after the US cash close,
+# commit the snapshot, and let Vercel redeploy the static page.
+# NOTE: scheduled workflows only run on the repository's DEFAULT branch.
+
+on:
+  schedule:
+    - cron: "30 21 * * 1-5"   # 21:30 UTC, Mon-Fri (~after the 16:00 ET close)
+  workflow_dispatch: {}        # allow manual runs from the Actions tab
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fairvalue-snapshot
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - name: Build snapshot
+        run: python web/build_fairvalue.py
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/data.json
+          if git diff --cached --quiet; then
+            echo "No change to web/data.json."
+          else
+            git commit -m "web: update fair value snapshot [skip ci]"
+            git push
+          fi

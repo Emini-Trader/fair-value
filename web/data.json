@@ -1,0 +1,21 @@
+{
+  "ok": true,
+  "computed_at": "2026-06-16T12:13:35Z",
+  "session": "2026-06-04",
+  "price_date": "2026-06-03",
+  "contract": "ESM26",
+  "deferred_contract": "ESU26",
+  "expiry": "2026-06-18",
+  "days_to_expiry": 14,
+  "spot": 7553.68,
+  "rate_pct": 4.967,
+  "dividend_points": 4.98,
+  "interest_component": 14.06,
+  "dividend_component": 4.98,
+  "fair_value_premium": 9.08,
+  "fair_value_price": 7562.76,
+  "observed_future": 7571.75,
+  "observed_basis": 18.07,
+  "mispricing": 8.99,
+  "verdict": "rich"
+}

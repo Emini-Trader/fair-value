@@ -1,0 +1,97 @@
+"""Build the fair-value snapshot the web dashboard reads (web/data.json).
+
+Run by the GitHub Action after the US cash close: it prices the *front* ES
+contract for the next session using the latest close (indexarb's overnight
+convention) and writes a small JSON the static page renders.
+
+    python web/build_fairvalue.py                 # auto: next session from latest close
+    python web/build_fairvalue.py --session 2026-06-04 --price-date 2026-06-03
+"""
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import pathlib
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+
+from fairvalue.calendar import contract_code, next_quarterly_settlement  # noqa: E402
+from fairvalue.session import compute_with_deferred_repo  # noqa: E402
+from fairvalue.providers.total_return import TotalReturnDividendProvider  # noqa: E402
+from fairvalue.providers.yahoo import YahooPriceProvider  # noqa: E402
+
+OUT = pathlib.Path(__file__).resolve().parent / "data.json"
+
+
+def _next_weekday(day: dt.date) -> dt.date:
+    nxt = day + dt.timedelta(days=1)
+    while nxt.weekday() >= 5:  # Sat/Sun -> Monday
+        nxt += dt.timedelta(days=1)
+    return nxt
+
+
+def _latest_weekday(day: dt.date) -> dt.date:
+    while day.weekday() >= 5:
+        day -= dt.timedelta(days=1)
+    return day
+
+
+def build(session: dt.date, price_date: dt.date) -> dict:
+    price = YahooPriceProvider()
+    divs = TotalReturnDividendProvider()
+    rep = compute_with_deferred_repo(session, price, divs, price_date=price_date)
+    deferred = next_quarterly_settlement(rep.expiry, on_or_after=False)
+    mp = rep.mispricing or 0.0
+    return {
+        "ok": True,
+        "computed_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "session": session.isoformat(),
+        "price_date": price_date.isoformat(),
+        "contract": rep.contract,
+        "deferred_contract": contract_code(deferred),
+        "expiry": rep.expiry.isoformat(),
+        "days_to_expiry": rep.days_to_expiry,
+        "spot": round(rep.index_value, 2),
+        "rate_pct": round(rep.annual_rate * 100, 3),
+        "dividend_points": round(rep.dividend_points, 2),
+        "interest_component": round(rep.interest_component, 2),
+        "dividend_component": round(rep.dividend_component, 2),
+        "fair_value_premium": round(rep.fair_value_premium, 2),
+        "fair_value_price": round(rep.fair_value_price, 2),
+        "observed_future": round(rep.futures_price, 2) if rep.futures_price else None,
+        "observed_basis": round(rep.observed_basis, 2) if rep.observed_basis is not None else None,
+        "mispricing": round(mp, 2),
+        "verdict": "fair" if abs(mp) < 0.5 else ("rich" if mp > 0 else "cheap"),
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(description="Build web/data.json fair-value snapshot.")
+    p.add_argument("--session", type=dt.date.fromisoformat,
+                   help="target session date (default: next weekday)")
+    p.add_argument("--price-date", type=dt.date.fromisoformat,
+                   help="close used as spot (default: latest weekday)")
+    ns = p.parse_args(argv)
+
+    today = dt.date.today()
+    price_date = ns.price_date or _latest_weekday(today)
+    session = ns.session or _next_weekday(price_date)
+
+    try:
+        data = build(session, price_date)
+    except Exception as exc:  # noqa: BLE001 - record the failure for the page
+        data = {
+            "ok": False,
+            "computed_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "session": session.isoformat(),
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+    OUT.write_text(json.dumps(data, indent=2) + "\n")
+    print(json.dumps(data, indent=2))
+    return 0 if data.get("ok") else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
