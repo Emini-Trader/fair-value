@@ -16,7 +16,8 @@ window gives the *realised* dividend points for that window.
 Fair value needs *forward* dividends (over the contract's remaining life), so we
 take the realised dividends from the same calendar window one year earlier as a
 seasonal estimate -- capturing the strong seasonality of S&P 500 ex-dividend
-dates -- optionally scaled by a dividend-growth factor.
+dates -- scaled up by the year-over-year dividend growth measured from the data
+itself (no hand-set constant), so the estimate keeps pace with rising payouts.
 
 The two helpers here are pure and unit-tested; only the provider touches Yahoo.
 """
@@ -83,15 +84,42 @@ def seasonal_forward_dividends(
     return total * growth
 
 
+def estimate_yoy_growth(
+    daily_divs: list[tuple[dt.date, float]], as_of: dt.date
+) -> float:
+    """Year-over-year dividend growth measured from two trailing 12-month windows.
+
+    Returns the multiplier (e.g. 1.066 for +6.6%) by which last year's realised
+    dividends should be scaled to estimate this year's. Measured from the data,
+    so there is no hand-set growth constant. Falls back to 1.0 when the prior
+    window has no data, and is clamped to [0.5, 2.0] to guard against feed gaps.
+    """
+    recent = sum(v for d, v in daily_divs if _shift_years(as_of, 1) < d <= as_of)
+    prior = sum(
+        v for d, v in daily_divs
+        if _shift_years(as_of, 2) < d <= _shift_years(as_of, 1)
+    )
+    if prior <= 0:
+        return 1.0
+    return min(2.0, max(0.5, recent / prior))
+
+
 class TotalReturnDividendProvider:
-    """Seasonal forward dividend points backed by Yahoo ^GSPC / ^SP500TR."""
+    """Seasonal forward dividend points backed by Yahoo ^GSPC / ^SP500TR.
+
+    The estimate takes last year's realised dividends over the same calendar
+    window and, by default (``growth="auto"``), scales them by the year-over-year
+    growth measured from the data -- so the forward estimate keeps up with rising
+    dividends without any hand-set constant. Pass a float to fix the growth
+    multiplier instead (1.0 = last year's amounts unscaled).
+    """
 
     def __init__(
         self,
         price_provider: YahooPriceProvider | None = None,
         *,
         years_back: int = 1,
-        growth: float = 1.0,
+        growth: float | str = "auto",
     ) -> None:
         self._pp = price_provider or YahooPriceProvider()
         self._years_back = years_back
@@ -100,11 +128,17 @@ class TotalReturnDividendProvider:
     def dividend_points(
         self, as_of: dt.date, expiry: dt.date, index_value: float
     ) -> float:
-        # Need trailing history covering the prior-year window [as_of-1y, expiry-1y].
-        start = _shift_years(as_of, self._years_back) - dt.timedelta(days=10)
+        # Cover the prior-year window [as_of-Ny, expiry-Ny]; auto-growth needs
+        # one extra trailing year to measure the year-over-year change.
+        extra = 1 if self._growth == "auto" else 0
+        start = _shift_years(as_of, self._years_back + extra) - dt.timedelta(days=10)
         price = self._pp.history(SPX, start, as_of)
         total = self._pp.history(SPX_TOTAL_RETURN, start, as_of)
         divs = daily_dividend_points(price, total)
+        if self._growth == "auto":
+            growth = estimate_yoy_growth(divs, as_of) ** self._years_back
+        else:
+            growth = self._growth
         return seasonal_forward_dividends(
-            divs, as_of, expiry, years_back=self._years_back, growth=self._growth
+            divs, as_of, expiry, years_back=self._years_back, growth=growth
         )

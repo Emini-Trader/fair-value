@@ -50,8 +50,11 @@ Notes that match the reference methodology:
   (`--implied-repo`, see Validation).
 - **Dividends** use actually declared or forecast cash amounts (not yields)
   whose ex-date falls in the remaining life of the contract, normalised by the
-  index divisor. This is more accurate — and more *seasonal* — than a flat
-  dividend-yield approximation.
+  index divisor — exactly indexarb's "by amount" method. This is more accurate
+  — and more *seasonal* — than a flat dividend-yield approximation. The free
+  estimator recovers these amounts as index points from the total-return vs
+  price index, then scales last year's window by the **data-measured** YoY
+  dividend growth (no hand-set constant) — see Validation.
 - **Slippage and friction are intentionally omitted** (arbitrage desks
   minimise both).
 
@@ -227,12 +230,20 @@ a close, defensible estimate, not a bit-identical copy:
 | -------------- | ------------------------------ | -------------------------------------------------- |
 | Index (SPX)    | Yahoo `^GSPC`                  | daily close                                        |
 | Interest rate  | FRED `DGS*` (risk-free) **or** implied repo from `ES=F` | T-bill CMT interpolated; or `--implied-repo` backs the funding rate out of the future |
-| Dividends      | Yahoo `^SP500TR` vs `^GSPC`    | seasonal forward estimate; or `--dividends` manual |
+| Dividends      | Yahoo `^SP500TR` vs `^GSPC`    | seasonal forward estimate + data-measured YoY growth; or `--dividends` manual |
 | Futures (ES)   | Yahoo `ES=F`                   | continuous front-month, recent years only          |
 
 The biggest accuracy driver is dividends (no free feed of forward dividend
 points); the total-return seasonal method captures ex-date seasonality without
 needing constituent data. See `fairvalue/providers/`.
+
+**Dividend validation.** Against indexarb's published divisor-adjusted dividend
+points across **18 sessions** (2025-01 → 2026-05, two contracts each), the
+total-return estimator with data-measured YoY growth (~7%) tracks the
+*realised* dividends, landing on average ~1 point above indexarb's own figure —
+because indexarb's forecast is itself ~0.7 point below what actually went ex
+(it forecasts only known/announced dividends). The residual is forecast
+uncertainty, not method error. See `examples/` and `tests/test_total_return.py`.
 
 Live auto-fetch needs these hosts on the environment's **network allowlist**
 (egress is restricted by default): `fred.stlouisfed.org`,
