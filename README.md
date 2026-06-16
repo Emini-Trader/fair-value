@@ -258,6 +258,9 @@ read.
       dividend estimators — parsing/interpolation unit-tested offline; live
       fetch verified end-to-end (see below).
 - [x] Holiday-aware settlement calendar (Good Friday / Juneteenth roll-back).
+- [x] Front roll on the **Monday of expiration week** (`front_settlement`) —
+      ES open interest rolls to the next contract that Monday, so from then on
+      the "front" is the next quarterly, matching indexarb's listing exactly.
 - [x] Validated against published fair values (indexarb.com, 4 sessions).
 - [x] Autonomous `--fetch`: SPX + rate + dividends with no manual inputs.
 - [x] Live data fetch verified end-to-end with the hosts on the network

@@ -135,6 +135,34 @@ def days_to_expiry(as_of: dt.date, expiry: dt.date) -> int:
     return (expiry - as_of).days
 
 
+def roll_monday(year: int, month: int) -> dt.date:
+    """Monday of the week containing the quarterly 3rd Friday.
+
+    Index arbitrageurs advance their 'front' contract to the next quarterly on
+    this day: by the Monday of expiration week, ES open interest and volume have
+    already rolled to the next contract, so it -- not the still-listed expiring
+    contract -- is the one the fair value is quoted against.
+    """
+    tf = third_friday(year, month)
+    return tf - dt.timedelta(days=tf.weekday())
+
+
+def front_settlement(as_of: dt.date) -> dt.date:
+    """Settlement of the contract treated as the active *front* on ``as_of``.
+
+    The nearest quarterly settlement, except during expiration week: from
+    :func:`roll_monday` (the Monday of the week the quarterly 3rd Friday falls
+    in) the front advances to the next quarterly, matching the ES volume roll and
+    indexarb's listing. Use this, not :func:`next_quarterly_settlement`, wherever
+    the *active* contract is wanted.
+    """
+    for year in (as_of.year, as_of.year + 1, as_of.year + 2):
+        for month in QUARTERLY_MONTHS:
+            if as_of < roll_monday(year, month):
+                return settlement_date(year, month)
+    raise RuntimeError("no front settlement found (should be unreachable)")
+
+
 # Standard CME contract month codes (used in symbols such as ESM24 = June 2024).
 MONTH_CODES: dict[int, str] = {
     1: "F", 2: "G", 3: "H", 4: "J", 5: "K", 6: "M",

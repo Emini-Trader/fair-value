@@ -11,7 +11,12 @@ from __future__ import annotations
 import datetime as dt
 
 from .calculator import FairValueReport, compute_fair_value
-from .calendar import contract_code, days_to_expiry, next_quarterly_settlement
+from .calendar import (
+    contract_code,
+    days_to_expiry,
+    front_settlement,
+    next_quarterly_settlement,
+)
 from .core import DEFAULT_DAYS_PER_YEAR, implied_rate
 from .providers.base import DividendProvider, PriceProvider, RateProvider
 
@@ -34,7 +39,7 @@ def compute_session(
     """
     index = price_provider.close(spx_symbol, as_of)
     reports: list[FairValueReport] = []
-    expiry = next_quarterly_settlement(as_of, on_or_after=True)
+    expiry = front_settlement(as_of)
     for _ in range(n_contracts):
         days = days_to_expiry(as_of, expiry)
         rate = rate_provider.zero_rate(as_of, days)
@@ -89,7 +94,7 @@ def compute_implied_repo(
     session's close; days and dividends still run from ``as_of``.
     """
     if expiry is None:
-        expiry = next_quarterly_settlement(as_of, on_or_after=True)
+        expiry = front_settlement(as_of)
     days = days_to_expiry(as_of, expiry)
     index = price_provider.close(spx_symbol, price_date or as_of)
     futures = (
@@ -136,7 +141,7 @@ def compute_with_deferred_repo(
     horizon) -- e.g. indexarb prices its session-D fair value off the D-1 close.
     """
     price_date = price_date or as_of
-    front_expiry = next_quarterly_settlement(as_of, on_or_after=True)
+    front_expiry = front_settlement(as_of)
     deferred_expiry = next_quarterly_settlement(front_expiry, on_or_after=False)
     index = price_provider.close(spx_symbol, price_date)
 

@@ -112,13 +112,13 @@ def compute_from_namespace(ns: argparse.Namespace) -> FairValueReport:
 
 
 def _autofill(ns, index, rate, dividends):  # pragma: no cover - needs network
-    from .calendar import days_to_expiry, next_quarterly_settlement
+    from .calendar import days_to_expiry, front_settlement
     from .providers.fred import FredRateProvider
     from .providers.total_return import TotalReturnDividendProvider
     from .providers.yahoo import SPX, YahooPriceProvider
 
     try:
-        expiry = ns.expiry or next_quarterly_settlement(ns.date, on_or_after=True)
+        expiry = ns.expiry or front_settlement(ns.date)
         days = days_to_expiry(ns.date, expiry)
         if index is None:
             index = YahooPriceProvider().close(SPX, ns.date)

@@ -13,7 +13,9 @@ Two views:
     sessions (where the deferred is JUN26 / SEP26).
   * basis (ES=F - SPX, = front implied-repo FV): shown for all 19 as a sanity
     check. It ties out except at quarterly rolls, where indexarb advances its
-    listed front ~3 days before Yahoo's continuous ES=F does (flagged ROLL).
+    listed front on the Monday of expiration week (when ES open interest rolls),
+    before Yahoo's continuous ES=F does -- so they quote different contracts
+    those days (flagged ROLL). See fairvalue.calendar.front_settlement.
 """
 import datetime as dt
 import pathlib
