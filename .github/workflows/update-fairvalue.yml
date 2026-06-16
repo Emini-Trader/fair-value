@@ -1,12 +1,15 @@
 name: Update fair value
 
-# Recompute the front fair value for the next session after the US cash close,
+# Recompute the front fair value off the last completed session, just after
+# midnight in New York (fair value is an end-of-day figure -- never intraday),
 # commit the snapshot, and let Vercel redeploy the static page.
 # NOTE: scheduled workflows only run on the repository's DEFAULT branch.
 
 on:
   schedule:
-    - cron: "30 21 * * 1-5"   # 21:30 UTC, Mon-Fri (~after the 16:00 ET close)
+    # 05:01 UTC = 00:01 EST / 01:01 EDT, Mon-Fri -- just after midnight New York,
+    # so the prior session's EOD data is final regardless of daylight saving.
+    - cron: "1 5 * * 1-5"
   workflow_dispatch: {}        # allow manual runs from the Actions tab
 
 permissions:
