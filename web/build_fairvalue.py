@@ -20,7 +20,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from fairvalue.calendar import contract_code, next_quarterly_settlement  # noqa: E402
 from fairvalue.session import compute_with_deferred_repo  # noqa: E402
 from fairvalue.providers.total_return import TotalReturnDividendProvider  # noqa: E402
-from fairvalue.providers.yahoo import YahooPriceProvider  # noqa: E402
+from fairvalue.providers.yahoo import ES_FRONT, SPX, YahooPriceProvider  # noqa: E402
 
 OUT = pathlib.Path(__file__).resolve().parent / "data.json"
 
@@ -38,9 +38,26 @@ def _latest_weekday(day: dt.date) -> dt.date:
     return day
 
 
-def build(session: dt.date, price_date: dt.date) -> dict:
-    price = YahooPriceProvider()
-    divs = TotalReturnDividendProvider()
+def _latest_common_close(price: YahooPriceProvider, today: dt.date) -> dt.date:
+    """Latest date for which BOTH the cash index and the front future have a
+    close, so spot and futures are sampled on the *same* day.
+
+    A feed can publish the futures' close a day before the cash index's; pricing
+    a stale spot against a fresh future inflates the basis (and the implied
+    rate). Anchoring to the latest common date avoids that. Falls back to the
+    latest weekday if either history is missing.
+    """
+    lo = today - dt.timedelta(days=20)
+    try:
+        spot = price.history(SPX, lo, today)
+        fut = price.history(ES_FRONT, lo, today)
+        return min(max(d for d, _ in spot), max(d for d, _ in fut))
+    except Exception:  # noqa: BLE001 - degrade gracefully
+        return _latest_weekday(today)
+
+
+def build(session: dt.date, price_date: dt.date,
+          price: YahooPriceProvider, divs: TotalReturnDividendProvider) -> dict:
     rep = compute_with_deferred_repo(session, price, divs, price_date=price_date)
     deferred = next_quarterly_settlement(rep.expiry, on_or_after=False)
     mp = rep.mispricing or 0.0
@@ -75,12 +92,19 @@ def main(argv: list[str] | None = None) -> int:
                    help="close used as spot (default: latest weekday)")
     ns = p.parse_args(argv)
 
+    price = YahooPriceProvider()
+    divs = TotalReturnDividendProvider()
     today = dt.date.today()
-    price_date = ns.price_date or _latest_weekday(today)
+    price_date = ns.price_date or _latest_common_close(price, today)
     session = ns.session or _next_weekday(price_date)
 
     try:
-        data = build(session, price_date)
+        data = build(session, price_date, price, divs)
+        if (today - price_date).days > 3:
+            data["warning"] = (
+                f"Cash index data lags the futures; pricing off the latest "
+                f"consistent close ({price_date})."
+            )
     except Exception as exc:  # noqa: BLE001 - record the failure for the page
         data = {
             "ok": False,

@@ -102,7 +102,10 @@ function render(d) {
       </div>
     </div>`;
   const foot = document.getElementById("foot");
-  foot.innerHTML = `
+  const warn = d.warning
+    ? `<div style="color:#e0a64a;background:rgba(224,166,74,.1);border:1px solid rgba(224,166,74,.25);border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:12px">⚠ ${d.warning}</div>`
+    : "";
+  foot.innerHTML = warn + `
     Front priced with the next contract's implied funding rate (non-circular),
     from the <strong>${d.price_date}</strong> close — indexarb's overnight convention.
     <code>${v}</code> = the observed future is ${d.mispricing>0?"above":"below"} fair value
