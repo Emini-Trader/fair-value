@@ -94,8 +94,13 @@ def main(argv: list[str] | None = None) -> int:
 
     price = YahooPriceProvider()
     divs = TotalReturnDividendProvider()
-    today = dt.date.today()
-    price_date = ns.price_date or _latest_common_close(price, today)
+    now = dt.datetime.now(dt.timezone.utc)
+    today = now.date()
+    # Don't treat today's candle as a finished close before the US cash close
+    # (~20:00-21:00 UTC): pricing an intraday value as a "close" and rolling to
+    # the next session is premature. After ~21:00 UTC today's close is final.
+    cap = today if now.hour >= 21 else _latest_weekday(today - dt.timedelta(days=1))
+    price_date = ns.price_date or min(_latest_common_close(price, today), cap)
     session = ns.session or _next_weekday(price_date)
 
     try:
@@ -104,6 +109,13 @@ def main(argv: list[str] | None = None) -> int:
             data["warning"] = (
                 f"Cash index data lags the futures; pricing off the latest "
                 f"consistent close ({price_date})."
+            )
+        # Sanity guard: an implausible implied rate means the spot and futures
+        # quotes are inconsistent (e.g. a stale/glitched print). Flag, don't hide.
+        if data.get("ok") and not (0.5 <= data["rate_pct"] <= 7.0):
+            data["warning"] = (
+                f"Implied funding rate {data['rate_pct']:.2f}% is outside the "
+                f"normal range — likely a stale or inconsistent spot/futures quote."
             )
     except Exception as exc:  # noqa: BLE001 - record the failure for the page
         data = {
