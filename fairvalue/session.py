@@ -21,6 +21,21 @@ from .core import DEFAULT_DAYS_PER_YEAR, implied_rate
 from .providers.base import DividendProvider, PriceProvider, RateProvider
 
 
+def _front_future_price(price_provider, expiry, price_date, *, root, fallback):
+    """Price of the active front contract for ``expiry``.
+
+    Uses the explicit contract (e.g. ``ESU26.CME``), which is correct during roll
+    week -- when the continuous ``ES=F`` still tracks the *expiring* contract even
+    though the front has rolled. Falls back to the continuous ``fallback`` symbol
+    when the explicit contract isn't listed (e.g. backtesting a front that has
+    since expired and been delisted).
+    """
+    try:
+        return price_provider.close(f"{contract_code(expiry, root=root)}.CME", price_date)
+    except Exception:  # noqa: BLE001 - any fetch failure -> continuous fallback
+        return price_provider.close(fallback, price_date)
+
+
 def compute_session(
     as_of: dt.date,
     price_provider: PriceProvider,
@@ -100,7 +115,8 @@ def compute_implied_repo(
     futures = (
         futures_price
         if futures_price is not None
-        else price_provider.close(futures_symbol, price_date or as_of)
+        else _front_future_price(price_provider, expiry, price_date or as_of,
+                                 root=root, fallback=futures_symbol)
     )
     dividends = dividend_provider.dividend_points(as_of, expiry, index)
     rate = implied_rate(index, futures, days, dividends, days_per_year=days_per_year)
@@ -158,7 +174,8 @@ def compute_with_deferred_repo(
     # Price the FRONT with that rate; its own future is only the basis reference.
     front_div = dividend_provider.dividend_points(as_of, front_expiry, index)
     if front_futures is None:
-        front_futures = price_provider.close(front_futures_symbol, price_date)
+        front_futures = _front_future_price(price_provider, front_expiry, price_date,
+                                            root=root, fallback=front_futures_symbol)
     return compute_fair_value(
         as_of, index, rate, front_div, expiry=front_expiry,
         futures_price=front_futures, days_per_year=days_per_year, root=root,

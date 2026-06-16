@@ -102,10 +102,11 @@ def test_implied_repo_honours_explicit_futures_price():
 
 def test_deferred_repo_prices_front_non_circularly():
     # 2026-05-15: front = ESM26 (Jun 18, 34d), deferred = ESU26 (Sep 18, 126d)
-    price = _SymPrice({"^GSPC": 7600.0, "ES=F": 7625.0, "ESU26.CME": 7700.0})
+    price = _SymPrice({"^GSPC": 7600.0, "ESM26.CME": 7625.0, "ESU26.CME": 7700.0})
     rep = compute_with_deferred_repo(dt.date(2026, 5, 15), price, _Div())
     assert rep.contract == "ESM26"                       # the FRONT is priced
-    assert rep.futures_price == pytest.approx(7625.0)    # front future = basis ref
+    assert rep.futures_price == pytest.approx(7625.0)    # explicit front contract
+    assert "ESM26.CME" in price.seen                     # front fetched explicitly
     assert "ESU26.CME" in price.seen                     # rate fetched from deferred
     # the rate is the deferred contract's implied repo, not the front's
     assert rep.annual_rate == pytest.approx(implied_rate(7600.0, 7700.0, 126, 0.10 * 126))
