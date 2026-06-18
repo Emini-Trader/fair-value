@@ -13,12 +13,14 @@ web/
 
 ## How it works
 
-1. **GitHub Action** (`.github/workflows/update-fairvalue.yml`) runs just after
-   midnight in New York (05:01 UTC, Mon–Fri — DST-safe). Fair value is an
-   end-of-day figure, so it prices the **front** ES contract off the **last
-   completed trading session** — never an intraday value, indexarb's overnight
-   convention — with `web/build_fairvalue.py`, and commits `web/data.json` if it
-   changed.
+1. **GitHub Action** (`.github/workflows/update-fairvalue.yml`) runs in the
+   evening after the US close (22:31 UTC, with a 01:31 UTC backup, Mon–Fri).
+   Fair value is an end-of-day figure, so it prices the **front** ES contract
+   for the **next session** off the close that just settled — never an intraday
+   value, indexarb's overnight convention — with `web/build_fairvalue.py`, and
+   commits `web/data.json` if it changed. (Building in the evening, rather than
+   after midnight ET, means GitHub's multi-hour scheduling delay still lands the
+   refresh in the early European morning.)
 2. The commit triggers **Vercel** to redeploy the static page.
 3. `index.html` fetches `data.json` and shows the fair value premium, the
    decomposition, and the observed future's rich/cheap signal.
@@ -42,8 +44,8 @@ Rebuild the snapshot by hand with `python web/build_fairvalue.py` (or pass
    Workflow permissions → Read and write**. Trigger a first run from the
    **Actions** tab (*Update fair value → Run workflow*).
 
-After that, every weekday just after midnight ET the snapshot refreshes and
-Vercel redeploys — the page always shows the fair value for that session.
+After that, every weekday evening (after the US close) the snapshot refreshes
+and Vercel redeploys — the page always shows the fair value for the next session.
 
 > Educational tool, not investment advice. Reproduces the public index-arbitrage
 > fair value methodology from free data; see the repository root for the model.

@@ -1,12 +1,12 @@
 """Build the fair-value snapshot the web dashboard reads (web/data.json).
 
-Run by the GitHub Action just after midnight in New York: fair value is an
-end-of-day figure, so it always prices the *front* ES contract off the LAST
-COMPLETED trading session (the prior trading day -- indexarb's overnight
-convention), never an intraday / same-day value, and writes a small JSON the
+Run by the GitHub Action in the evening after the US close: fair value is an
+end-of-day figure, so it prices the *front* ES contract for the NEXT session off
+the close that just settled (the last completed trading session -- indexarb's
+overnight convention), never an intraday value, and writes a small JSON the
 static page renders.
 
-    python web/build_fairvalue.py                 # auto: prior completed close
+    python web/build_fairvalue.py                 # auto: next session, prior close
     python web/build_fairvalue.py --session 2026-06-04 --price-date 2026-06-03
 """
 from __future__ import annotations
@@ -58,46 +58,57 @@ def _latest_common_close(price: YahooPriceProvider, today: dt.date) -> dt.date:
         return _latest_weekday(today)
 
 
-def _now_et_date() -> dt.date:
-    """Today's calendar date in New York (EST/EDT-aware).
+#: US cash + equity-index futures settle at 16:00 ET; after this hour the
+#: session's end-of-day data is final. The evening build runs past it, so it can
+#: treat today's close as the last completed session (see resolve_dates).
+SESSION_CLOSE_ET_HOUR = 17
 
-    Fair value is computed just after midnight NY, so the New York date -- not
-    the UTC date -- decides which session is "today". Falls back to a UTC-5
-    approximation only if the tz database is unavailable (it is present on the
-    CI runner and any normal install).
+
+def _now_et() -> dt.datetime:
+    """Current time in New York (EST/EDT-aware), tz-aware.
+
+    The build runs in the evening after the US close, so both the New York DATE
+    and whether we are past the close decide which session to price. Falls back
+    to a fixed UTC-5 (EST) clock only if the tz database is unavailable (it is
+    present on the CI runner and any normal install).
     """
     try:
         from zoneinfo import ZoneInfo
 
-        return dt.datetime.now(ZoneInfo("America/New_York")).date()
+        return dt.datetime.now(ZoneInfo("America/New_York"))
     except Exception:  # noqa: BLE001 - no tzdata: approximate ET as UTC-5 (EST)
-        return (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=5)).date()
+        return dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=5)
 
 
 def resolve_dates(
-    today_et: dt.date,
+    now_et: dt.datetime,
     latest_common_close: dt.date,
     *,
     price_date: dt.date | None = None,
     session: dt.date | None = None,
 ) -> tuple[dt.date, dt.date]:
-    """Pick (price_date, session) under the end-of-day / midnight-NY rule.
+    """Pick (price_date, session): the NEXT trading session, priced off the last
+    COMPLETED session's close.
 
-    ``price_date`` is the LAST COMPLETED trading session: strictly before today
-    in New York (so it is fully closed -- never an intraday value), and no later
-    than the most recent date both feeds actually carry (which skips weekends,
-    holidays and feed lag). ``session`` is the day being priced -- "today" in New
-    York for the scheduled post-midnight run, else the next weekday after the
-    close. Explicit ``price_date`` / ``session`` (manual backfills) win.
+    Fair value is an end-of-day figure and the Action runs in the evening after
+    the US close. Once we are past the close (``SESSION_CLOSE_ET_HOUR``) on a
+    trading day -- and the feed actually carries today's close -- today is the
+    last completed session, so we price the *next* session off it. Before the
+    close (or if today's close is not posted yet) we price off the most recent
+    prior session instead -- never an intraday value. The output is therefore
+    stable across GitHub's scheduling delay: whether the run lands this evening
+    or after midnight, it yields the same next-session snapshot. Explicit
+    ``price_date`` / ``session`` (manual backfills) win.
     """
-    prior = _latest_weekday(today_et - dt.timedelta(days=1))
-    pd = price_date or min(latest_common_close, prior)
-    if session is not None:
-        s = session
-    elif price_date is None and today_et.weekday() < 5:
-        s = today_et  # the scheduled run fires at ~00:01 ET on the session day
+    today = now_et.date()
+    past_close = now_et.hour >= SESSION_CLOSE_ET_HOUR
+    if past_close and today.weekday() < 5 and latest_common_close >= today:
+        last_close = today  # evening of a trading day: today's close is final
     else:
-        s = _next_weekday(pd)
+        prior = _latest_weekday(today - dt.timedelta(days=1))
+        last_close = min(latest_common_close, prior)  # else the prior session
+    pd = price_date or last_close
+    s = session or _next_weekday(pd)
     return pd, s
 
 
@@ -140,17 +151,18 @@ def main(argv: list[str] | None = None) -> int:
 
     price = YahooPriceProvider()
     divs = TotalReturnDividendProvider()
-    # End-of-day rule: anchor to New York time and price off the last completed
-    # trading session (never today's intraday value). See resolve_dates.
-    today_et = _now_et_date()
+    # End-of-day rule: anchor to New York time and price the next session off the
+    # last completed session's close (never today's intraday value). See
+    # resolve_dates.
+    now_et = _now_et()
     price_date, session = resolve_dates(
-        today_et, _latest_common_close(price, today_et),
+        now_et, _latest_common_close(price, now_et.date()),
         price_date=ns.price_date, session=ns.session,
     )
 
     try:
         data = build(session, price_date, price, divs)
-        if (today_et - price_date).days > 4:
+        if (now_et.date() - price_date).days > 4:
             data["warning"] = (
                 f"Cash index data lags the futures; pricing off the latest "
                 f"consistent close ({price_date})."
