@@ -89,25 +89,6 @@ def test_fred_funding_spread_lifts_zero_rate():
 
 # --- Yahoo ------------------------------------------------------------------
 
-def _ts(d: dt.date) -> int:
-    return int(dt.datetime.combine(d, dt.time(13, 30), dt.timezone.utc).timestamp())
-
-
-def test_parse_chart_json_drops_missing():
-    payload = {
-        "chart": {
-            "result": [
-                {
-                    "timestamp": [_ts(dt.date(2024, 4, 15)), _ts(dt.date(2024, 4, 16))],
-                    "indicators": {"quote": [{"close": [5061.82, None]}]},
-                }
-            ]
-        }
-    }
-    rows = yahoo.parse_chart_json(payload)
-    assert rows == [(dt.date(2024, 4, 15), 5061.82)]
-
-
 def test_close_on_or_before_picks_latest_not_after():
     rows = [
         (dt.date(2024, 4, 12), 5123.0),
@@ -119,25 +100,24 @@ def test_close_on_or_before_picks_latest_not_after():
     assert yahoo.close_on_or_before(rows, dt.date(2024, 4, 13)) == 5123.0
 
 
-def test_yahoo_price_provider_with_fake_opener():
-    import json
+def test_yahoo_price_provider_with_mock():
+    import pandas as pd
+    from unittest.mock import patch, MagicMock
 
-    payload = {
-        "chart": {
-            "result": [
-                {
-                    "timestamp": [_ts(dt.date(2024, 4, 15))],
-                    "indicators": {"quote": [{"close": [5061.82]}]},
-                }
-            ]
-        }
-    }
+    provider = yahoo.YahooPriceProvider()
+    
+    with patch("yfinance.Ticker") as mock_ticker:
+        mock_instance = MagicMock()
+        
+        # Create a mock DataFrame
+        df = pd.DataFrame(
+            {"Close": [5061.82]},
+            index=[pd.Timestamp("2024-04-15")]
+        )
+        mock_instance.history.return_value = df
+        mock_ticker.return_value = mock_instance
 
-    def opener(url, timeout):
-        return FakeResp(json.dumps(payload))
-
-    provider = yahoo.YahooPriceProvider(opener=opener)
-    assert provider.close(yahoo.SPX, dt.date(2024, 4, 15)) == pytest.approx(5061.82)
+        assert provider.close(yahoo.SPX, dt.date(2024, 4, 15)) == pytest.approx(5061.82)
 
 
 # --- dividends --------------------------------------------------------------

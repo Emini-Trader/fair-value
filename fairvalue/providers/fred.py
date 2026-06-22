@@ -134,3 +134,42 @@ class FredRateProvider:
         an approximate financing rate (see :data:`DEFAULT_FUNDING_SPREAD`).
         """
         return interpolate_rate(self.curve(as_of), days) + self.funding_spread
+
+
+class FredSOFRProvider:
+    """A :class:`~fairvalue.providers.base.RateProvider` backed by FRED's SOFR overnight rate.
+
+    Unlike the Treasury curve, this provider fetches the single overnight SOFR
+    rate (FRED series ``SOFR``) and returns it flat across all horizons. SOFR is
+    the modern risk-free/funding benchmark for derivatives.
+    """
+
+    def __init__(
+        self,
+        *,
+        opener: Opener = _default_opener,
+        timeout: float = 15.0,
+        lookback_days: int = 10,
+        funding_spread: float = 0.0,
+    ) -> None:
+        self._opener = opener
+        self._timeout = timeout
+        self._lookback_days = lookback_days
+        self.funding_spread = funding_spread
+
+    def _fetch_latest(self, series_id: str, as_of: dt.date) -> float | None:
+        start = as_of - dt.timedelta(days=self._lookback_days)
+        url = fred_csv_url(series_id, start, as_of)
+        with self._opener(url, self._timeout) as resp:
+            text = resp.read().decode("utf-8")
+        return latest_value(parse_fred_csv(text))
+
+    def zero_rate(self, as_of: dt.date, days: float) -> float:
+        """Flat annualised rate (decimal) based on overnight SOFR.
+
+        Adds :attr:`funding_spread` to the SOFR rate.
+        """
+        value = self._fetch_latest("SOFR", as_of)
+        if value is None:
+            raise RuntimeError(f"FRED returned no SOFR rate as of {as_of}")
+        return (value / 100.0) + self.funding_spread

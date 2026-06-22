@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass
+from typing import Iterable, Union
 
 from .calendar import contract_code, days_to_expiry, next_quarterly_settlement
 from .core import DEFAULT_DAYS_PER_YEAR, basis, fair_value, mispricing
@@ -68,7 +69,7 @@ def compute_fair_value(
     as_of: dt.date,
     index_value: float,
     annual_rate: float,
-    dividend_points: float = 0.0,
+    dividend_points: Union[float, Iterable[tuple[float, float]]] = 0.0,
     *,
     expiry: dt.date | None = None,
     futures_price: float | None = None,

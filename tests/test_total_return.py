@@ -34,7 +34,7 @@ def test_seasonal_forward_window_includes_prior_year_dividend():
     pts = tr.seasonal_forward_dividends(
         divs, dt.date(2026, 6, 15), dt.date(2026, 9, 18), years_back=1
     )
-    assert pts == pytest.approx(0.5, abs=1e-9)
+    assert sum(v for _, v in pts) == pytest.approx(0.5, abs=1e-9)
 
 
 def test_seasonal_growth_scaling():
@@ -42,7 +42,7 @@ def test_seasonal_growth_scaling():
     pts = tr.seasonal_forward_dividends(
         divs, dt.date(2026, 6, 15), dt.date(2026, 9, 18), years_back=1, growth=1.06
     )
-    assert pts == pytest.approx(0.53, abs=1e-9)
+    assert sum(v for _, v in pts) == pytest.approx(0.53, abs=1e-9)
 
 
 def test_seasonal_window_excludes_out_of_range_dividend():
@@ -51,7 +51,7 @@ def test_seasonal_window_excludes_out_of_range_dividend():
     pts = tr.seasonal_forward_dividends(
         divs, dt.date(2026, 8, 1), dt.date(2026, 9, 18), years_back=1
     )
-    assert pts == pytest.approx(0.0, abs=1e-9)
+    assert sum(v for _, v in pts) == pytest.approx(0.0, abs=1e-9)
 
 
 class _FakePriceProvider:
@@ -68,7 +68,7 @@ def test_provider_wires_fetch_to_seasonal_estimate():
         _FakePriceProvider(PRICE_ROWS, TR_ROWS), years_back=1
     )
     pts = provider.dividend_points(dt.date(2026, 6, 15), dt.date(2026, 9, 18), 7600.0)
-    assert pts == pytest.approx(0.5, abs=1e-9)
+    assert sum(v for _, v in pts) == pytest.approx(0.5, abs=1e-9)
 
 
 def test_estimate_yoy_growth_measures_two_trailing_windows():
@@ -93,8 +93,8 @@ def test_auto_growth_scales_seasonal_estimate():
     args = (d(2026, 6, 15), d(2026, 9, 18), 7600.0)
     fixed = tr.TotalReturnDividendProvider(fake, growth=1.0).dividend_points(*args)
     auto = tr.TotalReturnDividendProvider(fake, growth="auto").dividend_points(*args)
-    assert fixed == pytest.approx(0.55, abs=1e-9)
-    assert auto == pytest.approx(0.605, abs=1e-9)  # 0.55 * 1.10 measured growth
+    assert sum(v for _, v in fixed) == pytest.approx(0.55, abs=1e-9)
+    assert sum(v for _, v in auto) == pytest.approx(0.605, abs=1e-9)  # 0.55 * 1.10 measured growth
 
 
 def test_symbols_distinct():

@@ -25,6 +25,7 @@ The two helpers here are pure and unit-tested; only the provider touches Yahoo.
 from __future__ import annotations
 
 import datetime as dt
+from typing import Union, Iterable
 
 from .yahoo import SPX, SPX_TOTAL_RETURN, YahooPriceProvider
 
@@ -71,17 +72,23 @@ def seasonal_forward_dividends(
     *,
     years_back: int = 1,
     growth: float = 1.0,
-) -> float:
+) -> list[tuple[float, float]]:
     """Estimate forward dividend points over [as_of, expiry] from seasonality.
 
-    Sums the realised daily dividend points from the same calendar window
-    ``years_back`` year(s) earlier, scaled by ``growth`` (e.g. 1.06 for +6%
-    year-over-year dividend growth).
+    Returns a list of ``(days_from_valuation, points)`` for each dividend,
+    reconstructed from the realised daily dividend points from the same calendar
+    window ``years_back`` year(s) earlier, scaled by ``growth``.
     """
     start_prev = _shift_years(as_of, years_back)
     end_prev = _shift_years(expiry, years_back)
-    total = sum(v for day, v in daily_divs if start_prev <= day <= end_prev)
-    return total * growth
+    
+    out = []
+    for day, v in daily_divs:
+        if start_prev <= day <= end_prev:
+            # Distance from the historical valuation date
+            days_from_val = float((day - start_prev).days)
+            out.append((days_from_val, v * growth))
+    return out
 
 
 def estimate_yoy_growth(
@@ -127,7 +134,7 @@ class TotalReturnDividendProvider:
 
     def dividend_points(
         self, as_of: dt.date, expiry: dt.date, index_value: float
-    ) -> float:
+    ) -> Union[float, Iterable[tuple[float, float]]]:
         # Cover the prior-year window [as_of-Ny, expiry-Ny]; auto-growth needs
         # one extra trailing year to measure the year-over-year change.
         extra = 1 if self._growth == "auto" else 0

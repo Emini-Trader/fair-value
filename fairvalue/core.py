@@ -35,6 +35,7 @@ trivial to unit-test and reuse.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Iterable, Union
 
 #: Day-count basis implied by the reference equation (ACT/365 fixed).
 DEFAULT_DAYS_PER_YEAR: float = 365.0
@@ -106,7 +107,7 @@ def fair_value(
     index_value: float,
     annual_rate: float,
     days_to_expiry: float,
-    dividend_points: float = 0.0,
+    dividend_points: Union[float, Iterable[tuple[float, float]]] = 0.0,
     days_per_year: float = DEFAULT_DAYS_PER_YEAR,
 ) -> FairValueResult:
     """Compute the fair value premium and full fair value price.
@@ -116,21 +117,34 @@ def fair_value(
         annual_rate: Annualised interest rate as a decimal.
         days_to_expiry: Calendar days from valuation date to expiration.
         dividend_points: Sum of dividends over the remaining life of the
-            contract, already expressed in index points
-            (use :func:`dividend_points_from_cash` to convert a cash sum).
+            contract, already expressed in index points. Can be a float (sum)
+            or an iterable of (days_from_valuation, points) for precise
+            compounding of each dividend to expiration.
         days_per_year: Day-count basis (365 by convention).
 
     Returns:
         A :class:`FairValueResult`.
     """
     ic = interest_component(index_value, annual_rate, days_to_expiry, days_per_year)
-    dc = dividend_points
+    
+    if isinstance(dividend_points, (int, float)):
+        dc = float(dividend_points)
+        total_dividend_points = dc
+    else:
+        # Reinvest each dividend from its ex-date to the expiry date
+        dc = 0.0
+        total_dividend_points = 0.0
+        for days_from_val, points in dividend_points:
+            total_dividend_points += points
+            reinvest_days = max(0.0, days_to_expiry - days_from_val)
+            dc += points * ((1.0 + annual_rate) ** (reinvest_days / days_per_year))
+            
     premium = ic - dc
     return FairValueResult(
         index_value=index_value,
         annual_rate=annual_rate,
         days_to_expiry=days_to_expiry,
-        dividend_points=dividend_points,
+        dividend_points=total_dividend_points,
         days_per_year=days_per_year,
         interest_component=ic,
         dividend_component=dc,
