@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "computed_at": "2026-06-20T05:53:01Z",
+  "computed_at": "2026-06-22T12:50:05Z",
   "session": "2026-06-19",
   "price_date": "2026-06-18",
   "contract": "ESU26",
@@ -12,11 +12,11 @@
   "rate_source": "deferred_implied_repo",
   "dividend_points": 21.18,
   "interest_component": 90.17,
-  "dividend_component": 21.18,
-  "fair_value_premium": 68.99,
-  "fair_value_price": 7569.57,
+  "dividend_component": 21.28,
+  "fair_value_premium": 68.88,
+  "fair_value_price": 7569.46,
   "observed_future": 7570.75,
   "observed_basis": 70.17,
-  "mispricing": 1.18,
+  "mispricing": 1.29,
   "verdict": "rich"
 }

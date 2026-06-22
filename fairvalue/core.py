@@ -172,7 +172,7 @@ def implied_rate(
     index_value: float,
     futures_price: float,
     days_to_expiry: float,
-    dividend_points: float = 0.0,
+    dividend_points: Union[float, Iterable[tuple[float, float]]] = 0.0,
     days_per_year: float = DEFAULT_DAYS_PER_YEAR,
 ) -> float:
     """Back out the interest rate implied by an observed futures price.
@@ -185,6 +185,10 @@ def implied_rate(
         raise ValueError("index_value must be positive")
     if days_to_expiry <= 0:
         raise ValueError("days_to_expiry must be positive")
+        
+    if not isinstance(dividend_points, (int, float)):
+        dividend_points = sum(pts for _, pts in dividend_points)
+        
     base = (futures_price + dividend_points) / index_value
     if base <= 0:
         raise ValueError("implied growth factor must be positive")
@@ -193,10 +197,10 @@ def implied_rate(
 
 def implied_forward_rate(
     near_price: float,
-    near_dividend_points: float,
+    near_dividend_points: Union[float, Iterable[tuple[float, float]]],
     near_days: float,
     far_price: float,
-    far_dividend_points: float,
+    far_dividend_points: Union[float, Iterable[tuple[float, float]]],
     far_days: float,
     days_per_year: float = DEFAULT_DAYS_PER_YEAR,
 ) -> float:
@@ -231,6 +235,12 @@ def implied_forward_rate(
     """
     if far_days <= near_days:
         raise ValueError("far_days must be greater than near_days")
+        
+    if not isinstance(near_dividend_points, (int, float)):
+        near_dividend_points = sum(pts for _, pts in near_dividend_points)
+    if not isinstance(far_dividend_points, (int, float)):
+        far_dividend_points = sum(pts for _, pts in far_dividend_points)
+        
     near = near_price + near_dividend_points
     far = far_price + far_dividend_points
     if near <= 0 or far <= 0:

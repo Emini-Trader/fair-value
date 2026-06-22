@@ -111,6 +111,10 @@ def compute_fair_value(
         observed_basis = basis(futures_price, index_value)
         mp = mispricing(futures_price, fv.fair_value_price)
 
+    total_dividend_points = dividend_points
+    if not isinstance(dividend_points, (int, float)):
+        total_dividend_points = sum(pts for _, pts in dividend_points)
+
     return FairValueReport(
         as_of=as_of,
         expiry=expiry,
@@ -118,7 +122,7 @@ def compute_fair_value(
         days_to_expiry=days,
         index_value=index_value,
         annual_rate=annual_rate,
-        dividend_points=dividend_points,
+        dividend_points=total_dividend_points,
         days_per_year=days_per_year,
         interest_component=fv.interest_component,
         dividend_component=fv.dividend_component,
