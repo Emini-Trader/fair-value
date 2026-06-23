@@ -89,7 +89,7 @@ function render(d) {
         <div class="price">fair price ${money(d.fair_value_price)} · spot ${money(d.spot)}</div>
       </div>
       <div class="grid">
-        <div class="cell"><div class="k">Interest rate</div><div class="v">${d.rate_pct.toFixed(3)}%</div></div>
+        <div class="cell"><div class="k">Interest rate</div><div class="v">${d.rate_pct.toFixed(3)}%</div>${d.curve_shape_adjustment != null ? `<div class="k" style="font-size:9px; margin-top:2px;">(shape adj: ${f(d.curve_shape_adjustment, true)} p.p.)</div>` : ''}</div>
         <div class="cell"><div class="k">Dividend pts</div><div class="v">${d.dividend_points.toFixed(2)}</div></div>
         <div class="cell"><div class="k">Interest comp.</div><div class="v">${f(d.interest_component)}</div></div>
         <div class="cell"><div class="k">Dividend comp.</div><div class="v">${f(-d.dividend_component)}</div></div>
@@ -107,10 +107,8 @@ function render(d) {
     ? `<div style="color:#e0a64a;background:rgba(224,166,74,.1);border:1px solid rgba(224,166,74,.25);border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:12px">⚠ ${d.warning}</div>`
     : "";
   foot.innerHTML = warn + `
-    Front priced with the next contract's implied funding rate (non-circular),
-    from the <strong>${d.price_date}</strong> close — indexarb's overnight convention.
-    <code>${v}</code> = the observed future is ${d.mispricing>0?"above":"below"} fair value
-    by ${f(d.mispricing)} pts (a sell-/buy-program signal once it clears your costs).<br>
+    Front priced with the next contract's implied funding rate (non-circular), from the <strong>${d.price_date}</strong> close.<br>
+    <strong>rich / cheap</strong> = the observed future is above/below fair value by ${Math.abs(d.mispricing).toFixed(2)} pts.<br>
     Computed ${d.computed_at} · data: Yahoo Finance · educational use only, not advice.`;
 }
 
