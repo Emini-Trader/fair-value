@@ -72,8 +72,9 @@ function render(d) {
   }
   const v = d.verdict, cls = v === "rich" ? "rich" : v === "cheap" ? "cheap" : "fair2";
   const bg = v === "rich" ? "rich-bg" : v === "cheap" ? "cheap-bg" : "fair-bg";
-  // dot offset: mispricing clamped to +/- one "scale" (use 2x interest as a soft range)
-  const scale = Math.max(5, Math.abs(d.fair_value_premium) * 1.5);
+  // dot offset: mispricing clamped to a fixed +/- 5 index points scale 
+  // (arbitrage usually triggers well within 2-4 points)
+  const scale = 5.0;
   const pos = Math.max(2, Math.min(98, 50 + (d.mispricing / scale) * 48));
   const dotColor = v === "rich" ? "var(--rich)" : v === "cheap" ? "var(--cheap)" : "var(--muted)";
   app.innerHTML = `

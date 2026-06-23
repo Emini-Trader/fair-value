@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "computed_at": "2026-06-23T05:40:43Z",
+  "computed_at": "2026-06-23T08:56:31Z",
   "session": "2026-06-23",
   "price_date": "2026-06-22",
   "contract": "ESU26",
@@ -8,15 +8,16 @@
   "expiry": "2026-09-18",
   "days_to_expiry": 87,
   "spot": 7472.79,
-  "rate_pct": 4.995,
-  "rate_source": "deferred_implied_repo",
+  "rate_pct": 4.9,
+  "rate_source": "deferred_implied_repo + curve_shaping",
   "dividend_points": 20.78,
-  "interest_component": 87.33,
+  "interest_component": 85.69,
   "dividend_component": 20.88,
-  "fair_value_premium": 66.45,
-  "fair_value_price": 7539.24,
+  "fair_value_premium": 64.82,
+  "fair_value_price": 7537.61,
   "observed_future": 7541.25,
   "observed_basis": 68.46,
-  "mispricing": 2.01,
-  "verdict": "rich"
+  "mispricing": 3.64,
+  "verdict": "rich",
+  "curve_shape_adjustment": -0.095
 }

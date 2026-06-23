@@ -153,6 +153,7 @@ def compute_with_deferred_repo(
     price_date: dt.date | None = None,
     days_per_year: float = DEFAULT_DAYS_PER_YEAR,
     max_rate_divergence: float = DEFAULT_MAX_RATE_DIVERGENCE,
+    shape_provider: RateProvider | None = None,
     root: str = "ES",
 ) -> FairValueReport:
     """Front fair value priced with the funding rate of the *next* contract.
@@ -220,8 +221,20 @@ def compute_with_deferred_repo(
     else:
         rate, rate_source = calendar_rate, "calendar_spread"
 
+    curve_shape_adjustment = None
+    if shape_provider is not None:
+        r_front = shape_provider.zero_rate(as_of, front_days)
+        r_deferred = shape_provider.zero_rate(as_of, deferred_days)
+        curve_shape_adjustment = r_front - r_deferred
+        rate += curve_shape_adjustment
+        rate_source += " + curve_shaping"
+
     report = compute_fair_value(
         as_of, index, rate, front_div, expiry=front_expiry,
         futures_price=front_futures, days_per_year=days_per_year, root=root,
     )
-    return replace(report, rate_source=rate_source)
+    return replace(
+        report, 
+        rate_source=rate_source, 
+        curve_shape_adjustment=curve_shape_adjustment
+    )

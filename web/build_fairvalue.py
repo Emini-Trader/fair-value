@@ -22,6 +22,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from fairvalue.calendar import contract_code, next_quarterly_settlement  # noqa: E402
 from fairvalue.session import compute_with_deferred_repo  # noqa: E402
 from fairvalue.providers.total_return import TotalReturnDividendProvider  # noqa: E402
+from fairvalue.providers.fred import FredRateProvider  # noqa: E402
 from fairvalue.providers.yahoo import ES_FRONT, SPX, YahooPriceProvider  # noqa: E402
 
 OUT = pathlib.Path(__file__).resolve().parent / "data.json"
@@ -113,11 +114,12 @@ def resolve_dates(
 
 
 def build(session: dt.date, price_date: dt.date,
-          price: YahooPriceProvider, divs: TotalReturnDividendProvider) -> dict:
-    rep = compute_with_deferred_repo(session, price, divs, price_date=price_date)
+          price: YahooPriceProvider, divs: TotalReturnDividendProvider,
+          shape: FredRateProvider) -> dict:
+    rep = compute_with_deferred_repo(session, price, divs, price_date=price_date, shape_provider=shape)
     deferred = next_quarterly_settlement(rep.expiry, on_or_after=False)
     mp = rep.mispricing or 0.0
-    return {
+    result = {
         "ok": True,
         "computed_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "session": session.isoformat(),
@@ -139,6 +141,9 @@ def build(session: dt.date, price_date: dt.date,
         "mispricing": round(mp, 2),
         "verdict": "fair" if abs(mp) < 0.5 else ("rich" if mp > 0 else "cheap"),
     }
+    if rep.curve_shape_adjustment is not None:
+        result["curve_shape_adjustment"] = round(rep.curve_shape_adjustment * 100, 3)
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -151,6 +156,7 @@ def main(argv: list[str] | None = None) -> int:
 
     price = YahooPriceProvider()
     divs = TotalReturnDividendProvider()
+    shape = FredRateProvider()
     # End-of-day rule: anchor to New York time and price the next session off the
     # last completed session's close (never today's intraday value). See
     # resolve_dates.
@@ -161,7 +167,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     try:
-        data = build(session, price_date, price, divs)
+        data = build(session, price_date, price, divs, shape)
         if (now_et.date() - price_date).days > 4:
             data["warning"] = (
                 f"Cash index data lags the futures; pricing off the latest "
