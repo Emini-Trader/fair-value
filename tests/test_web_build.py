@@ -9,6 +9,7 @@ off the last completed close.
 
 import datetime as dt
 import importlib.util
+import json
 import pathlib
 
 _BUILD = pathlib.Path(__file__).resolve().parent.parent / "web" / "build_fairvalue.py"
@@ -77,3 +78,25 @@ def test_explicit_price_date_backfill_derives_session():
 def test_explicit_session_override_is_honoured():
     _, s = resolve_dates(_et(2026, 6, 18, 22), D(2026, 6, 17), session=D(2026, 7, 1))
     assert s == D(2026, 7, 1)
+
+
+def test_offset_log_upserts_by_date(tmp_path):
+    log = tmp_path / "offset_history.jsonl"
+    base = {"ok": True, "price_date": "2026-06-16", "days_to_expiry": 94,
+            "turn_session": False, "fair_value_premium": 68.6, "observed_basis": 72.2,
+            "rate_pct": 4.77, "spot": 7554.3}
+    build_fairvalue._append_offset_record(base, log)
+    # same date again (e.g. the backup evening run) -> overwrite, not duplicate
+    build_fairvalue._append_offset_record(dict(base, fair_value_premium=68.9), log)
+    # a later date -> appended, kept sorted
+    build_fairvalue._append_offset_record(
+        dict(base, price_date="2026-06-17", fair_value_premium=70.8), log)
+    rows = [json.loads(x) for x in log.read_text().splitlines() if x.strip()]
+    assert [r["date"] for r in rows] == ["2026-06-16", "2026-06-17"]
+    assert rows[0]["model_offset"] == 68.9  # overwritten, not duplicated
+
+    # a failed snapshot, or one with no observed future, is skipped
+    build_fairvalue._append_offset_record({"ok": False}, log)
+    build_fairvalue._append_offset_record({"ok": True, "observed_basis": None}, log)
+    rows2 = [json.loads(x) for x in log.read_text().splitlines() if x.strip()]
+    assert len(rows2) == 2

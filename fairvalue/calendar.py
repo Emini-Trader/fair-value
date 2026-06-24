@@ -163,6 +163,39 @@ def front_settlement(as_of: dt.date) -> dt.date:
     raise RuntimeError("no front settlement found (should be unreachable)")
 
 
+#: Calendar quarter-ends (last day of Mar/Jun/Sep/Dec), as (month, day). These
+#: are the money-market "turns" where repo funding can tighten -- quarter-end
+#: balance-sheet pressure, with year-end (Dec 31) the most pronounced.
+QUARTER_END_MONTH_DAY: tuple[tuple[int, int], ...] = ((3, 31), (6, 30), (9, 30), (12, 31))
+
+
+def funding_turn_in_window(start: dt.date, end: dt.date) -> dict | None:
+    """Most significant money-market funding turn the window ``[start, end]`` spans.
+
+    A front contract whose remaining life spans a quarter-end -- and especially
+    the year-end -- carries a small upward funding bias (turn-of-quarter repo
+    tightening) that the smooth carry model does not see. This is a pure calendar
+    check: no market data, no constant.
+
+    Returns ``{"date": <turn date>, "kind": "year_end" | "quarter_end"}`` for the
+    most significant turn within ``[start, end]`` (year-end ranks above a plain
+    quarter-end; otherwise the earliest quarter-end), or ``None`` if the window
+    spans no quarter-end.
+    """
+    turns = [
+        dt.date(year, month, day)
+        for year in range(start.year, end.year + 1)
+        for month, day in QUARTER_END_MONTH_DAY
+        if start <= dt.date(year, month, day) <= end
+    ]
+    if not turns:
+        return None
+    year_ends = [d for d in turns if (d.month, d.day) == (12, 31)]
+    if year_ends:
+        return {"date": min(year_ends), "kind": "year_end"}
+    return {"date": min(turns), "kind": "quarter_end"}
+
+
 # Standard CME contract month codes (used in symbols such as ESM24 = June 2024).
 MONTH_CODES: dict[int, str] = {
     1: "F", 2: "G", 3: "H", 4: "J", 5: "K", 6: "M",

@@ -19,13 +19,21 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from fairvalue.calendar import contract_code, next_quarterly_settlement  # noqa: E402
+from fairvalue.calendar import (  # noqa: E402
+    contract_code,
+    funding_turn_in_window,
+    next_quarterly_settlement,
+)
 from fairvalue.session import compute_with_deferred_repo  # noqa: E402
 from fairvalue.providers.total_return import TotalReturnDividendProvider  # noqa: E402
 from fairvalue.providers.fred import FredRateProvider  # noqa: E402
 from fairvalue.providers.yahoo import ES_FRONT, SPX, YahooPriceProvider  # noqa: E402
 
 OUT = pathlib.Path(__file__).resolve().parent / "data.json"
+#: Rolling self-diagnostic log: one record per session of the model offset vs the
+#: observed front basis, so a systematic near-expiry / turn drift can be measured
+#: from data over time (aggregate with examples/diagnose_offset.py).
+LOG = pathlib.Path(__file__).resolve().parent / "offset_history.jsonl"
 
 
 def _next_weekday(day: dt.date) -> dt.date:
@@ -143,7 +151,51 @@ def build(session: dt.date, price_date: dt.date,
     }
     if rep.curve_shape_adjustment is not None:
         result["curve_shape_adjustment"] = round(rep.curve_shape_adjustment * 100, 3)
+    # Funding-turn flag: pure-calendar detection of a quarter-/year-end the front
+    # horizon spans, where the carry model can run a touch light (unmodelled
+    # turn-of-quarter repo tightening). Detection only -- no market data.
+    turn = funding_turn_in_window(session, rep.expiry)
+    result["turn_session"] = turn is not None
+    if turn is not None:
+        result["turn_kind"] = turn["kind"]
+        result["turn_date"] = turn["date"].isoformat()
     return result
+
+
+def _append_offset_record(data: dict, path: pathlib.Path = LOG) -> None:
+    """Upsert one session's model-vs-observed offset record into the JSONL log.
+
+    Idempotent by date (the backup evening run just overwrites the day's record).
+    Records the raw pieces -- the consumer derives gap = model_offset -
+    observed_basis. Skipped when the snapshot failed or has no observed future.
+    """
+    if not data.get("ok") or data.get("observed_basis") is None:
+        return
+    record = {
+        "date": data["price_date"],
+        "dte": data["days_to_expiry"],
+        "turn": data.get("turn_session", False),
+        "turn_kind": data.get("turn_kind"),
+        "model_offset": data["fair_value_premium"],
+        "observed_basis": data["observed_basis"],
+        "rate_pct": data["rate_pct"],
+        "spot": data["spot"],
+    }
+    rows = []
+    if path.exists():
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if row.get("date") != record["date"]:
+                rows.append(row)
+    rows.append(record)
+    rows.sort(key=lambda r: r.get("date", ""))
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -197,6 +249,7 @@ def main(argv: list[str] | None = None) -> int:
             "error": f"{type(exc).__name__}: {exc}",
         }
     OUT.write_text(json.dumps(data, indent=2) + "\n")
+    _append_offset_record(data)
     print(json.dumps(data, indent=2))
     return 0 if data.get("ok") else 1
 

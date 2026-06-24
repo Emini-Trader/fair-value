@@ -124,3 +124,26 @@ def test_front_settlement_rolls_on_monday_of_expiration_week():
     # Juneteenth quarter: rolls on Monday 06-15 even though settlement is Thu 06-18
     assert cal.front_settlement(dt.date(2026, 6, 12)) == dt.date(2026, 6, 18)   # still JUN
     assert cal.front_settlement(dt.date(2026, 6, 16)) == dt.date(2026, 9, 18)   # rolled to SEP
+
+
+def test_funding_turn_detects_quarter_end_in_window():
+    # Front Sep 15 -> Dec 18 spans Sep 30 (a quarter-end), not Dec 31.
+    turn = cal.funding_turn_in_window(dt.date(2026, 9, 15), dt.date(2026, 12, 18))
+    assert turn == {"date": dt.date(2026, 9, 30), "kind": "quarter_end"}
+
+
+def test_funding_turn_ranks_year_end_above_quarter_end():
+    # A window straddling Dec 31 is flagged as the (more pronounced) year-end.
+    turn = cal.funding_turn_in_window(dt.date(2026, 11, 20), dt.date(2027, 1, 16))
+    assert turn == {"date": dt.date(2026, 12, 31), "kind": "year_end"}
+
+
+def test_funding_turn_none_when_window_spans_no_quarter_end():
+    # Front Jan 5 -> Mar 20 spans no quarter-end (Mar 31 is after expiry).
+    assert cal.funding_turn_in_window(dt.date(2026, 1, 5), dt.date(2026, 3, 20)) is None
+
+
+def test_funding_turn_boundary_dates_count():
+    # A turn exactly on the window's start or end still counts.
+    assert cal.funding_turn_in_window(dt.date(2026, 9, 30), dt.date(2026, 12, 18))["kind"] == "quarter_end"
+    assert cal.funding_turn_in_window(dt.date(2026, 7, 1), dt.date(2026, 9, 30))["date"] == dt.date(2026, 9, 30)
