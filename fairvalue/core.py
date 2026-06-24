@@ -103,6 +103,30 @@ class FairValueResult:
         )
 
 
+def _compounded_dividend_points(
+    dividend_points: Union[float, Iterable[tuple[float, float]]],
+    annual_rate: float,
+    horizon_days: float,
+    days_per_year: float = DEFAULT_DAYS_PER_YEAR,
+) -> float:
+    """Dividend points reinvested to ``horizon_days`` (the contract's expiry).
+
+    A float is already a sum and is returned unchanged. An iterable of
+    ``(days_from_valuation, points)`` is compounded: each dividend, received on
+    its ex-date, earns the financing rate until expiry -- the cost-of-carry
+    convention. :func:`fair_value`, :func:`implied_rate` and
+    :func:`implied_forward_rate` all invert this same convention, so they stay
+    mutually consistent.
+    """
+    if isinstance(dividend_points, (int, float)):
+        return float(dividend_points)
+    total = 0.0
+    for days_from_val, points in dividend_points:
+        reinvest_days = max(0.0, horizon_days - days_from_val)
+        total += points * (1.0 + annual_rate) ** (reinvest_days / days_per_year)
+    return total
+
+
 def fair_value(
     index_value: float,
     annual_rate: float,
@@ -126,19 +150,19 @@ def fair_value(
         A :class:`FairValueResult`.
     """
     ic = interest_component(index_value, annual_rate, days_to_expiry, days_per_year)
-    
+
     if isinstance(dividend_points, (int, float)):
-        dc = float(dividend_points)
-        total_dividend_points = dc
+        total_dividend_points = float(dividend_points)
     else:
-        # Reinvest each dividend from its ex-date to the expiry date
-        dc = 0.0
-        total_dividend_points = 0.0
-        for days_from_val, points in dividend_points:
-            total_dividend_points += points
-            reinvest_days = max(0.0, days_to_expiry - days_from_val)
-            dc += points * ((1.0 + annual_rate) ** (reinvest_days / days_per_year))
-            
+        dividend_points = list(dividend_points)
+        total_dividend_points = sum(points for _, points in dividend_points)
+    # Reinvest each dividend from its ex-date to expiry (cost-of-carry); a float
+    # is treated as an already-compounded sum. implied_rate / implied_forward_rate
+    # invert this same convention, so the three stay mutually consistent.
+    dc = _compounded_dividend_points(
+        dividend_points, annual_rate, days_to_expiry, days_per_year
+    )
+
     premium = ic - dc
     return FairValueResult(
         index_value=index_value,
@@ -177,22 +201,41 @@ def implied_rate(
 ) -> float:
     """Back out the interest rate implied by an observed futures price.
 
-    Inverts the fair value equation:
+    For a float ``dividend_points`` this inverts the closed form::
 
         r = ((futures + dividend_points) / index) ** (B / days) - 1
+
+    For a ``(days_from_valuation, points)`` schedule each dividend compounds at
+    the (unknown) rate, so the equation is transcendental; it is solved by a
+    fixed-point iteration that discounts dividends exactly as :func:`fair_value`
+    does, so backing out a rate and re-pricing round-trips.
     """
     if index_value <= 0:
         raise ValueError("index_value must be positive")
     if days_to_expiry <= 0:
         raise ValueError("days_to_expiry must be positive")
-        
-    if not isinstance(dividend_points, (int, float)):
-        dividend_points = sum(pts for _, pts in dividend_points)
-        
-    base = (futures_price + dividend_points) / index_value
-    if base <= 0:
+
+    if isinstance(dividend_points, (int, float)):
+        base = (futures_price + float(dividend_points)) / index_value
+        if base <= 0:
+            raise ValueError("implied growth factor must be positive")
+        return base ** (days_per_year / days_to_expiry) - 1.0
+
+    divs = list(dividend_points)
+    r = (futures_price + sum(p for _, p in divs)) / index_value
+    if r <= 0:
         raise ValueError("implied growth factor must be positive")
-    return base ** (days_per_year / days_to_expiry) - 1.0
+    r = r ** (days_per_year / days_to_expiry) - 1.0  # undiscounted seed
+    for _ in range(50):
+        d = _compounded_dividend_points(divs, r, days_to_expiry, days_per_year)
+        base = (futures_price + d) / index_value
+        if base <= 0:
+            raise ValueError("implied growth factor must be positive")
+        r_next = base ** (days_per_year / days_to_expiry) - 1.0
+        if abs(r_next - r) < 1e-13:
+            return r_next
+        r = r_next
+    return r
 
 
 def implied_forward_rate(
@@ -235,17 +278,34 @@ def implied_forward_rate(
     """
     if far_days <= near_days:
         raise ValueError("far_days must be greater than near_days")
-        
-    if not isinstance(near_dividend_points, (int, float)):
-        near_dividend_points = sum(pts for _, pts in near_dividend_points)
-    if not isinstance(far_dividend_points, (int, float)):
-        far_dividend_points = sum(pts for _, pts in far_dividend_points)
-        
-    near = near_price + near_dividend_points
-    far = far_price + far_dividend_points
-    if near <= 0 or far <= 0:
-        raise ValueError("price + dividend_points must be positive for both legs")
-    return (far / near) ** (days_per_year / (far_days - near_days)) - 1.0
+
+    near_is_float = isinstance(near_dividend_points, (int, float))
+    far_is_float = isinstance(far_dividend_points, (int, float))
+    if near_is_float and far_is_float:
+        near = near_price + float(near_dividend_points)
+        far = far_price + float(far_dividend_points)
+        if near <= 0 or far <= 0:
+            raise ValueError("price + dividend_points must be positive for both legs")
+        return (far / near) ** (days_per_year / (far_days - near_days)) - 1.0
+
+    # Dividend schedule(s): each dividend compounds to its own contract's expiry
+    # at the (unknown) forward rate, matching fair_value. Solve by fixed point,
+    # seeded with the undiscounted rate (r=0 compounding == the raw sum).
+    r = 0.0
+    for i in range(51):
+        near = near_price + _compounded_dividend_points(
+            near_dividend_points, r, near_days, days_per_year
+        )
+        far = far_price + _compounded_dividend_points(
+            far_dividend_points, r, far_days, days_per_year
+        )
+        if near <= 0 or far <= 0:
+            raise ValueError("price + dividend_points must be positive for both legs")
+        r_next = (far / near) ** (days_per_year / (far_days - near_days)) - 1.0
+        if i and abs(r_next - r) < 1e-13:
+            return r_next
+        r = r_next
+    return r
 
 
 def implied_dividend_points(

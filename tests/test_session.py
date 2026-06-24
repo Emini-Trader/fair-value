@@ -92,6 +92,20 @@ def test_implied_repo_premium_equals_basis_and_is_self_fair():
     assert fv.fair_value_price == pytest.approx(7625.0)
 
 
+def test_implied_repo_is_self_fair_with_a_dividend_schedule():
+    # With a (days, points) schedule, implied_rate discounts exactly as
+    # fair_value, so the future stays 'fair against itself' (mispricing ~ 0) --
+    # the discount/sum inconsistency is gone.
+    class _ListDiv:
+        def dividend_points(self, as_of, expiry, index_value):
+            days = (expiry - as_of).days
+            return [(days * 0.25, 2.0), (days * 0.5, 2.0), (days * 0.9, 2.0)]
+
+    price = _SymPrice({"^GSPC": 7600.0, "ES=F": 7650.0})
+    rep = compute_implied_repo(dt.date(2026, 5, 15), price, _ListDiv())
+    assert rep.mispricing == pytest.approx(0.0, abs=1e-6)
+
+
 def test_implied_repo_honours_explicit_futures_price():
     # ES=F would be 9999, but an explicit --futures must win and skip the fetch
     price = _SymPrice({"^GSPC": 7600.0, "ES=F": 9999.0})

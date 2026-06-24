@@ -110,6 +110,28 @@ def test_implied_forward_rate_rejects_bad_horizons_and_legs():
         core.implied_forward_rate(-10.0, 0.0, 30, 6850.0, 25.0, 120)
 
 
+def test_implied_rate_round_trips_with_a_dividend_schedule():
+    # implied_rate must invert fair_value's per-dividend compounding, so backing
+    # a rate out of a future and re-pricing it returns the same future.
+    sched = [(10.0, 3.0), (45.0, 4.0), (90.0, 5.0)]  # (days_from_val, points)
+    fv = core.fair_value(7000.0, 0.05, 110, sched)
+    r = core.implied_rate(7000.0, fv.fair_value_price, 110, sched)
+    assert r == pytest.approx(0.05, abs=1e-9)
+    # discounting is genuinely active: compounded component exceeds the raw sum
+    assert fv.dividend_component > fv.dividend_points
+    assert fv.dividend_points == pytest.approx(12.0)
+
+
+def test_implied_forward_rate_round_trips_with_schedules():
+    spot, r = 7000.0, 0.05
+    near = [(5.0, 2.0), (30.0, 3.0)]
+    far = [(5.0, 2.0), (30.0, 3.0), (95.0, 4.0), (160.0, 4.0)]
+    f_near = core.fair_value(spot, r, 34, near).fair_value_price
+    f_far = core.fair_value(spot, r, 185, far).fair_value_price
+    rr = core.implied_forward_rate(f_near, near, 34, f_far, far, 185)
+    assert rr == pytest.approx(r, abs=1e-9)
+
+
 def test_continuous_vs_discrete_sanity():
     # The reference equation uses annual compounding (1+r)^(d/B). For a
     # sub-year horizon (d < B) that curve is convex in time and therefore sits
