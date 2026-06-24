@@ -9,12 +9,14 @@ description = "S&P 500 (SPX) index vs E-mini (ES) futures fair value calculator"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
-dependencies = ["yfinance>=0.2.0"]
+# The core and the live providers run on the standard library alone (urllib).
+dependencies = []
 
 [project.optional-dependencies]
-# Live data providers use yfinance for reliable Yahoo data.
-# pandas is optional, for analysis only.
-analysis = ["pandas>=2.0"]
+# yfinance is an optional, more robust primary fetch path (handles Yahoo's
+# cookie/crumb churn); without it the providers fall back to stdlib urllib.
+yahoo = ["yfinance>=0.2.0"]
+analysis = ["pandas>=2.0"]  # for analysis only
 dev = ["pytest>=7"]
 
 [tool.setuptools]

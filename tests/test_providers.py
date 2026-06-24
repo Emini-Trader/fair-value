@@ -100,24 +100,53 @@ def test_close_on_or_before_picks_latest_not_after():
     assert yahoo.close_on_or_before(rows, dt.date(2024, 4, 13)) == 5123.0
 
 
-def test_yahoo_price_provider_with_mock():
-    import pandas as pd
-    from unittest.mock import patch, MagicMock
+def test_yahoo_price_provider_uses_injected_history():
+    rows = [(dt.date(2024, 4, 12), 5100.0), (dt.date(2024, 4, 15), 5061.82)]
+    provider = yahoo.YahooPriceProvider(history_fn=lambda s, a, b: rows)
+    assert provider.close(yahoo.SPX, dt.date(2024, 4, 15)) == pytest.approx(5061.82)
+    # on-or-before: a non-trading day returns the latest prior close
+    assert provider.close(yahoo.SPX, dt.date(2024, 4, 16)) == pytest.approx(5061.82)
 
-    provider = yahoo.YahooPriceProvider()
-    
-    with patch("yfinance.Ticker") as mock_ticker:
-        mock_instance = MagicMock()
-        
-        # Create a mock DataFrame
-        df = pd.DataFrame(
-            {"Close": [5061.82]},
-            index=[pd.Timestamp("2024-04-15")]
-        )
-        mock_instance.history.return_value = df
-        mock_ticker.return_value = mock_instance
 
-        assert provider.close(yahoo.SPX, dt.date(2024, 4, 15)) == pytest.approx(5061.82)
+def test_yahoo_close_raises_when_no_data():
+    provider = yahoo.YahooPriceProvider(history_fn=lambda s, a, b: [])
+    with pytest.raises(RuntimeError):
+        provider.close(yahoo.SPX, dt.date(2024, 4, 15))
+
+
+def test_parse_chart_json_drops_missing_closes():
+    t0 = int(dt.datetime(2024, 4, 12, tzinfo=dt.timezone.utc).timestamp())
+    t1 = int(dt.datetime(2024, 4, 15, tzinfo=dt.timezone.utc).timestamp())
+    payload = {"chart": {"result": [{
+        "timestamp": [t0, t1],
+        "indicators": {"quote": [{"close": [None, 5061.82]}]},
+    }]}}
+    assert yahoo.parse_chart_json(payload) == [(dt.date(2024, 4, 15), pytest.approx(5061.82))]
+
+
+def test_parse_chart_json_handles_error_payload():
+    # Yahoo returns a 200 with no 'result' for unknown/delisted symbols.
+    assert yahoo.parse_chart_json({"chart": {"result": None, "error": {"code": "x"}}}) == []
+
+
+def test_chart_url_encodes_symbol_and_window():
+    url = yahoo.chart_url("^GSPC", dt.date(2024, 4, 1), dt.date(2024, 4, 15))
+    assert "%5EGSPC" in url and "interval=1d" in url and "period1=" in url
+
+
+def test_default_history_falls_back_to_urllib_when_yfinance_fails(monkeypatch):
+    def boom(*_):
+        raise RuntimeError("yfinance blocked (e.g. proxy)")
+    monkeypatch.setattr(yahoo, "yfinance_history", boom)
+    monkeypatch.setattr(yahoo, "urllib_history", lambda s, a, b: [(dt.date(2024, 4, 15), 1.0)])
+    assert yahoo.default_history("X", dt.date(2024, 4, 1), dt.date(2024, 4, 15)) == \
+        [(dt.date(2024, 4, 15), 1.0)]
+
+
+def test_default_history_falls_back_when_yfinance_returns_empty(monkeypatch):
+    monkeypatch.setattr(yahoo, "yfinance_history", lambda *a: [])
+    monkeypatch.setattr(yahoo, "urllib_history", lambda *a: [(dt.date(2024, 4, 15), 2.0)])
+    assert yahoo.default_history("X", dt.date(2024, 4, 1), dt.date(2024, 4, 15))[0][1] == 2.0
 
 
 # --- dividends --------------------------------------------------------------

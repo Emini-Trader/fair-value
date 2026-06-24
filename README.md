@@ -350,8 +350,17 @@ interpolates `3.690%` / `3.781%` (FRED) and estimates `1.37` / `21.27` dividend
 points for the ESM26/ESU26 contracts, with no manual inputs. Re-run the check
 anytime with `python examples/live_fetch_demo.py`. Without the allowlist, pass
 inputs manually (the CLI and `compute_fair_value` work fully offline); the live
-providers each accept an injectable `opener`, so their logic stays unit-tested
-without a network. Changing the allowlist takes effect in a **new** session.
+providers accept an injectable fetcher (`history_fn` for Yahoo, `opener` for
+FRED), so their logic stays unit-tested without a network. Changing the allowlist
+takes effect in a **new** session.
+
+**Fetch path.** The core and providers run on the **standard library alone**
+(urllib). The optional `[yahoo]` extra (`pip install -e ".[yahoo]"`) adds
+**yfinance** as a more robust *primary* that handles Yahoo's cookie/crumb churn,
+falling back to urllib when yfinance is unavailable or blocked — e.g. behind a
+proxy, where yfinance's `curl_cffi` transport fails but urllib honours
+`HTTPS_PROXY`. The scheduled snapshot Action installs the extra; either path
+works.
 
 ## Development
 

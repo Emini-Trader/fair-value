@@ -35,7 +35,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e .
+      - run: pip install -e ".[yahoo]"   # yfinance primary; urllib is the fallback
       - name: Build snapshot (retry transient feed hiccups, e.g. Yahoo 429)
         run: |
           for i in 1 2 3 4 5; do
