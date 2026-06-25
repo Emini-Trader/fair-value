@@ -108,7 +108,9 @@ function render(d) {
     : "";
   foot.innerHTML = warn + `
     Front priced with the next contract's implied funding rate (non-circular), from the <strong>${d.price_date}</strong> close.<br>
-    <strong style="color: #fff;">${v}</strong> = the observed future is ${d.mispricing > 0 ? "above" : "below"} by: ${Math.abs(d.mispricing).toFixed(2)} pts.<br>
+    ${v === "n/a"
+      ? `<strong style="color:#fff;">rich/cheap n/a</strong> — spot re-anchored to the futures (cash looked stale).`
+      : `<strong style="color: #fff;">${v}</strong> = the observed future is ${d.mispricing > 0 ? "above" : "below"} by: ${Math.abs(d.mispricing).toFixed(2)} pts.`}<br>
     Computed ${d.computed_at} · data: Yahoo Finance · educational use only, not advice.`;
 }
 

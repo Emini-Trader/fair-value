@@ -139,6 +139,7 @@ def build(session: dt.date, price_date: dt.date,
         "spot": round(rep.index_value, 2),
         "rate_pct": round(rep.annual_rate * 100, 3),
         "rate_source": rep.rate_source,
+        "spot_source": rep.spot_source,
         "dividend_points": round(rep.dividend_points, 2),
         "interest_component": round(rep.interest_component, 2),
         "dividend_component": round(rep.dividend_component, 2),
@@ -147,7 +148,13 @@ def build(session: dt.date, price_date: dt.date,
         "observed_future": round(rep.futures_price, 2) if rep.futures_price else None,
         "observed_basis": round(rep.observed_basis, 2) if rep.observed_basis is not None else None,
         "mispricing": round(mp, 2),
-        "verdict": "fair" if abs(mp) < 0.5 else ("rich" if mp > 0 else "cheap"),
+        # rich/cheap is meaningless when the spot was re-anchored to the futures
+        # (the cash spot was stale) -- flag it rather than show a spurious verdict.
+        "verdict": (
+            "n/a" if rep.spot_source == "futures_implied"
+            else "fair" if abs(mp) < 0.5
+            else ("rich" if mp > 0 else "cheap")
+        ),
     }
     if rep.curve_shape_adjustment is not None:
         result["curve_shape_adjustment"] = round(rep.curve_shape_adjustment * 100, 3)
@@ -230,11 +237,12 @@ def main(argv: list[str] | None = None) -> int:
         # (deferred-zero vs spot-free calendar rate diverge) and falls back to the
         # spot-free rate. Surface that so the fair value is trusted but the spot
         # caveat is visible. A residual band check stays as a final backstop.
-        if data.get("ok") and data.get("rate_source") == "calendar_spread":
+        if data.get("ok") and (data.get("rate_source") or "").startswith("calendar_spread"):
             data["warning"] = (
-                "Cash index looked stale/inconsistent with the futures, so the "
+                "Cash index looked stale/inconsistent with the futures: the "
                 "financing rate was taken from the futures calendar spread "
-                "(spot-free) instead of the deferred implied repo."
+                "(spot-free) and the spot was re-anchored to the futures-implied "
+                "level, so the fair value holds but rich/cheap is not meaningful."
             )
         elif data.get("ok") and not (0.5 <= data["rate_pct"] <= 7.0):
             data["warning"] = (

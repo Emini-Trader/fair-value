@@ -3,7 +3,7 @@ import sys
 import pathlib
 
 # Ensure we can import fairvalue
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
 from fairvalue.providers.yahoo import YahooPriceProvider, ES_FRONT
 from fairvalue.providers.total_return import TotalReturnDividendProvider

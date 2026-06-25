@@ -19,7 +19,12 @@ from .calendar import (
     front_settlement,
     next_quarterly_settlement,
 )
-from .core import DEFAULT_DAYS_PER_YEAR, implied_forward_rate, implied_rate
+from .core import (
+    DEFAULT_DAYS_PER_YEAR,
+    _compounded_dividend_points,
+    implied_forward_rate,
+    implied_rate,
+)
 from .providers.base import DividendProvider, PriceProvider, RateProvider
 
 #: Default tolerance (decimal) for the deferred-zero vs calendar-spread rate
@@ -229,12 +234,25 @@ def compute_with_deferred_repo(
         rate += curve_shape_adjustment
         rate_source += " + curve_shaping"
 
+    # When the guard fell back to the spot-free calendar rate, the cash spot is
+    # inconsistent with the futures, so pricing (and the basis) off it is
+    # unreliable -- it produces a spurious rich/cheap. Re-anchor to the
+    # futures-implied spot so the offset and basis stay coherent; the rich/cheap
+    # read is not meaningful in this state and is flagged via spot_source.
+    spot_source = "cash"
+    if rate_source.startswith("calendar_spread"):
+        comp_div = _compounded_dividend_points(front_div, rate, front_days, days_per_year)
+        implied_spot = (front_futures + comp_div) / (1.0 + rate) ** (front_days / days_per_year)
+        if implied_spot > 0:
+            index, spot_source = implied_spot, "futures_implied"
+
     report = compute_fair_value(
         as_of, index, rate, front_div, expiry=front_expiry,
         futures_price=front_futures, days_per_year=days_per_year, root=root,
     )
     return replace(
-        report, 
-        rate_source=rate_source, 
-        curve_shape_adjustment=curve_shape_adjustment
+        report,
+        rate_source=rate_source,
+        curve_shape_adjustment=curve_shape_adjustment,
+        spot_source=spot_source,
     )

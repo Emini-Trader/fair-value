@@ -122,8 +122,10 @@ def test_deferred_repo_prices_front_non_circularly():
     assert rep.futures_price == pytest.approx(7625.0)    # explicit front contract
     assert "ESM26.CME" in price.seen                     # front fetched explicitly
     assert "ESU26.CME" in price.seen                     # rate fetched from deferred
-    # consistent spot/futures -> the deferred implied repo is used (best match)
+    # consistent spot/futures -> the deferred implied repo is used (best match),
+    # the cash spot is kept (not re-anchored), and rich/cheap is a real signal
     assert rep.rate_source == "deferred_implied_repo"
+    assert rep.spot_source == "cash"
     # the rate is the deferred contract's implied repo, not the front's
     assert rep.annual_rate == pytest.approx(implied_rate(7600.0, 7700.0, 126, 0.10 * 126))
     # so the front is NOT fair against itself -> a genuine rich/cheap signal
@@ -146,6 +148,11 @@ def test_deferred_repo_falls_back_to_calendar_rate_when_spot_is_stale():
     assert rep.contract == "ESU26"
     assert rep.rate_source == "calendar_spread"            # guard tripped -> spot-free
     assert rep.annual_rate == pytest.approx(r, abs=1e-6)   # 4.6%, not the inflated ~8%
+    # the stale cash spot is discarded: re-anchor to the futures-implied spot,
+    # so the rich/cheap read is not a spurious "rich" but ~0 (flagged n/a upstream)
+    assert rep.spot_source == "futures_implied"
+    assert rep.index_value == pytest.approx(true_spot, abs=1e-6)  # not the 2%-stale value
+    assert rep.mispricing == pytest.approx(0.0, abs=1e-9)
     # the naive deferred-zero rate really would have blown past the guard...
     naive = implied_rate(stale, f_def, 185, 0.10 * 185)
     assert naive - r > 0.015

@@ -81,7 +81,6 @@ def seasonal_forward_dividends(
     """
     start_prev = _shift_years(as_of, years_back)
     end_prev = _shift_years(expiry, years_back)
-    
     out = []
     for day, v in daily_divs:
         if start_prev <= day <= end_prev:
