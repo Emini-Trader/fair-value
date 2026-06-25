@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "computed_at": "2026-06-25T05:40:34Z",
+  "computed_at": "2026-06-25T05:58:14Z",
   "session": "2026-06-25",
   "price_date": "2026-06-24",
   "contract": "ESU26",
@@ -10,6 +10,7 @@
   "spot": 7358.22,
   "rate_pct": 5.021,
   "rate_source": "deferred_implied_repo + curve_shaping",
+  "spot_source": "cash",
   "dividend_points": 20.55,
   "interest_component": 84.43,
   "dividend_component": 20.65,
