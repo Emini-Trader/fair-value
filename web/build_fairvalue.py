@@ -1,10 +1,10 @@
 """Build the fair-value snapshot the web dashboard reads (web/data.json).
 
-Run by the GitHub Action in the evening after the US close: fair value is an
-end-of-day figure, so it prices the *front* ES contract for the NEXT session off
-the close that just settled (the last completed trading session -- indexarb's
-overnight convention), never an intraday value, and writes a small JSON the
-static page renders.
+Run by the GitHub Action after the US close, once the day's futures candle has
+settled on Yahoo: fair value is an end-of-day figure, so it prices the *front*
+ES contract for the NEXT session off the close that just settled (the last
+completed trading session -- indexarb's overnight convention), never an intraday
+value, and writes a small JSON the static page renders.
 
     python web/build_fairvalue.py                 # auto: next session, prior close
     python web/build_fairvalue.py --session 2026-06-04 --price-date 2026-06-03

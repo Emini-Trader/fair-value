@@ -7,14 +7,17 @@ name: Update fair value
 
 on:
   schedule:
-    # Evening, after the 16:00 ET close + settlement, so the day's EOD data is
-    # final: price the NEXT session off the close that just settled. GitHub
-    # delays scheduled runs by hours, so building in the evening (not after
-    # midnight ET) means even a delayed run lands in the early European morning.
-    # Two attempts, both still in the New York evening; the build is idempotent
-    # (no-op commit if unchanged), so a second one covers a skipped run.
-    - cron: "31 22 * * 1-5"   # 22:31 UTC = 18:31 EDT / 17:31 EST (session evening)
-    - cron: "31 1 * * 2-6"    # 01:31 UTC = 21:31 EDT / 20:31 EST the same evening
+    # Run late enough that Yahoo has FINALISED the day's futures candle to its
+    # settlement. Querying during the evening Globex session returns a
+    # provisional futures price that later revises by ~10 pts, which inflates the
+    # implied financing rate (and the fair value). Shifted ~4h later than the old
+    # evening slot: with GitHub's ~4h scheduling delay, 02:31 UTC executes around
+    # 06:30 UTC (~02:30 ET) -- after the candle has settled -- and the result
+    # still lands in the European morning. Two attempts (idempotent build) cover
+    # a skipped run. (The rate cross-check guard remains the backstop for any
+    # residual glitch if a run fires early.)
+    - cron: "31 2 * * 2-6"   # 02:31 UTC (+~4h delay -> ~02:30 ET, candle settled)
+    - cron: "31 5 * * 2-6"   # 05:31 UTC backup
   workflow_dispatch: {}        # allow manual runs from the Actions tab
 
 permissions:

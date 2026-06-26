@@ -13,14 +13,14 @@ web/
 
 ## How it works
 
-1. **GitHub Action** (`.github/workflows/update-fairvalue.yml`) runs in the
-   evening after the US close (22:31 UTC, with a 01:31 UTC backup, Mon–Fri).
-   Fair value is an end-of-day figure, so it prices the **front** ES contract
-   for the **next session** off the close that just settled — never an intraday
-   value, indexarb's overnight convention — with `web/build_fairvalue.py`, and
-   commits `web/data.json` if it changed. (Building in the evening, rather than
-   after midnight ET, means GitHub's multi-hour scheduling delay still lands the
-   refresh in the early European morning.)
+1. **GitHub Action** (`.github/workflows/update-fairvalue.yml`) runs after the
+   US close, once the day's futures candle has settled (02:31 UTC, with a 05:31
+   UTC backup, Mon–Fri close). Fair value is an end-of-day figure, so it prices
+   the **front** ES contract for the **next session** off the close that just
+   settled — never an intraday value, indexarb's overnight convention — with
+   `web/build_fairvalue.py`, and commits `web/data.json` if it changed. (With
+   GitHub's multi-hour scheduling delay, that slot executes ~06:30 UTC, after
+   Yahoo finalises the futures candle, and still lands in the European morning.)
 2. The commit triggers **Vercel** to redeploy the static page.
 3. `index.html` fetches `data.json` and shows the fair value premium, the
    decomposition, and the observed future's rich/cheap signal.
