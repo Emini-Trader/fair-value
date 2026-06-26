@@ -27,18 +27,19 @@ from .core import (
 )
 from .providers.base import DividendProvider, PriceProvider, RateProvider
 
-#: Default tolerance (decimal) for the deferred-zero vs calendar-spread rate
-#: cross-check in :func:`compute_with_deferred_repo`. The two are the *same*
-#: financing rate measured two ways: backing it out of the deferred future
-#: (which divides by the cash spot) versus the spot-free calendar spread between
-#: the two futures. On consistent data they agree to a few hundredths of a
-#: percent (max 0.22% across all 19 validation sessions -- the gap is just the
-#: curve's slope between the two horizons). They can only diverge by *percent*
-#: when the cash spot is stale/inconsistent with the futures -- exactly the case
-#: that inflates the deferred-zero rate. 1.5% sits an order of magnitude above
-#: the legitimate gap and well below any blow-up, so the cross-check is a robust
-#: data-quality flag, not a model calibration.
-DEFAULT_MAX_RATE_DIVERGENCE: float = 0.015
+#: Default tolerance (decimal) for the deferred-implied vs spot-free calendar
+#: rate cross-check in :func:`compute_with_deferred_repo`. They are the *same*
+#: financing rate two ways: backed out of the deferred future (divides by the
+#: cash spot) versus the calendar spread between the two futures (spot-free). On
+#: consistent data they agree to <=0.3% (max 0.294% across the live validation
+#: sessions -- just the curve's slope between the two horizons). But a stale cash
+#: spot, OR a provisional/glitched futures close (Yahoo sometimes serves an
+#: evening-session price that later revises by ~10 pts), pushes the spot-using
+#: deferred rate off by ~0.5%+ while the spot-free calendar rate stays put. 0.5%
+#: sits just above the legitimate slope and below those data glitches, so beyond
+#: it we trust the calendar rate. A false trip is benign (the calendar rate is
+#: robust and ~matches the deferred on clean data); a missed glitch is not.
+DEFAULT_MAX_RATE_DIVERGENCE: float = 0.005
 
 
 def _front_future_price(price_provider, expiry, price_date, *, root, fallback):
