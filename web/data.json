@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "computed_at": "2026-06-30T08:15:56Z",
+  "computed_at": "2026-06-30T08:28:48Z",
   "session": "2026-06-30",
   "price_date": "2026-06-29",
   "contract": "ESU26",
@@ -20,8 +20,8 @@
   "mispricing": 4.46,
   "verdict": "rich",
   "curve_shape_adjustment": -0.12,
-  "liquidity_warning": true,
-  "fallback_spot_fv": 59.82,
+  "liquidity_warning": false,
+  "fallback_spot_fv": null,
   "turn_session": true,
   "turn_kind": "quarter_end",
   "turn_date": "2026-06-30"

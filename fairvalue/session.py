@@ -230,7 +230,7 @@ from .providers.base import DividendProvider, PriceProvider, RateProvider
 #: contract has suffered a severe liquidity breakdown or mispricing.
 #: 1.5% (0.015) provides a robust buffer against normal market fluctuations
 #: while catching true breakdowns.
-DEFAULT_MAX_RATE_DIVERGENCE: float = 0.005
+DEFAULT_MAX_RATE_DIVERGENCE: float = 0.015
 
 
 def _front_future_price(price_provider, expiry, price_date, *, root, fallback):
