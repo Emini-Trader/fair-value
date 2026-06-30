@@ -281,15 +281,15 @@ and dividing makes the cash index cancel:
 ```
 
 so the rate comes purely from the two futures — a stale spot can't touch it.
-`compute_with_deferred_repo` keeps the deferred implied repo as primary (it best
-matches indexarb), but cross-checks it against this spot-free rate; when they
-diverge by more than `max_rate_divergence` (default **1.5%**) — which only
-happens when the spot is inconsistent — it falls back to the spot-free rate and
-flags `rate_source="calendar_spread"`. On all 19 validation sessions the two
-agree to **≤0.3%** (the curve's own slope), an order of magnitude below the
-guard, so every validated number above is unchanged; on the stale-spot incident
-the two diverged by ~3.6% and the fall-back held the rate at ~4.6% (FV ~65). Run
-`examples/validate_fair_value.py` (prints the per-session rate gap).
+`compute_with_deferred_repo` therefore uses this spot-free calendar rate as the
+**primary** rate (`rate_source="calendar_spread"`), not merely a cross-check: the
+fair value never divides by the cash index, so a stale `^GSPC` is structurally
+unable to move it. The deferred implied repo is kept only as an offline
+sanity / rich-cheap reference. The one remaining exposure is the deferred
+contract's *own* price; a liquidity breakdown there is caught by the
+return-divergence safeguard above (raises `liquidity_warning` and a front-only
+`fallback_spot_fv`). On the stale-spot incident the calendar rate held at ~4.6%
+(FV ~65) where the old spot-using rate would have doubled it.
 
 ## Status / roadmap
 
@@ -318,10 +318,10 @@ the two diverged by ~3.6% and the fall-back held the rate at ~4.6% (FV ~65). Run
 - [x] `--prior-close`: indexarb's overnight convention (session-D fair value off
       the D-1 close) — ties spot out to indexarb's to the cent; full front FV
       lands within ±0.4 off the hump days, validated out-of-sample on 2026-06-03.
-- [x] Spot-robust rate (`core.implied_forward_rate`): the deferred implied repo
-      is cross-checked against the spot-free futures calendar spread and falls
-      back to it when a stale `^GSPC` would otherwise inflate the rate (and double
-      the fair value). Validated numbers are unchanged (rates agree to ≤0.3%).
+- [x] Spot-robust rate (`core.implied_forward_rate`): the spot-free futures
+      calendar spread is the **primary** rate, so a stale `^GSPC` can't inflate
+      the rate (and double the fair value). A return-divergence safeguard guards
+      the deferred leg against a liquidity breakdown.
 
 ### Data sources & network access
 
