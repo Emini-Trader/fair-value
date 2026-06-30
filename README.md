@@ -216,22 +216,30 @@ indexarb), with **no systematic bias** — the residual ±1–2 points is end-of
 timing (Yahoo close vs indexarb's intraday snapshot). The identity's flip side:
 this future is *fair against itself* (mispricing 0 by construction).
 
-#### The rate curve, and the non-circular model (`--deferred-repo`)
+#### The rate curve, and the non-circular spot-free model (`--deferred-repo`)
 
 indexarb's published yield curve confirms why no free rate feed reproduces it: it
 is a piecewise-linear **funding** curve (deposit + Eurodollar) through an
 overnight node, a humped ~1-month node (the 5.7% / 7.6% spikes), and **IMM-date
-nodes** (3rd-Wednesday SOFR/Eurodollar-future expiries) — instruments that are
-either dead (Eurodollar) or have no free history (SOFR futures). The market
+nodes** (3rd-Wednesday SOFR/Eurodollar-future expiries). The market
 *funding* rate is only recoverable from the futures themselves.
 
-To get that rate **without** the circularity, `--deferred-repo` prices the front
-with the implied repo of the **next** contract (independent of the front), so the
-basis vs fair value is a real rich/cheap signal. Front FV, fully autonomous, vs
-indexarb. One timing detail matters: indexarb computes its session-D fair value
-from the **prior** session's close (verified — its 2026-05-29 spot 7563.63 is our
-2026-05-28 close), counting days/dividends from D. `--prior-close` matches that.
-Front FV, fully autonomous, with that convention:
+To get that rate **without** the circularity, `--deferred-repo` computes the 
+market funding rate from the **calendar spread** between the front and next 
+(deferred) futures. Because it is calculated purely from the difference between two 
+futures contracts, this rate is completely **spot-free** and immune to end-of-day 
+cash index noise or MOC imbalances. The front contract is then priced with this 
+clean calendar rate, so the basis vs fair value is a real rich/cheap signal.
+
+**Liquidity Safeguard:** Because the calendar rate relies on the deferred contract,
+a severe liquidity breakdown in the distant future could artificially distort the 
+funding rate. The model employs a built-in safeguard: it compares the **daily percentage return**
+(from the prior session's settlement) of the deferred contract against the front contract.
+If the returns diverge by more than 0.05% (~4 index points), the model detects a 
+liquidity fracture, raises a `liquidity_warning`, and calculates an emergency fallback 
+FV based purely on the front contract's implied repo.
+
+Front FV, fully autonomous, vs indexarb:
 
 | Session       | spot (D-1) | rate % | FV (deferred-repo) | indexarb | Δ      |
 | ------------- | ---------- | ------ | ------------------ | -------- | ------ |
