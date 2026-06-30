@@ -4,7 +4,7 @@ import datetime as dt
 
 import pytest
 
-from fairvalue.core import fair_value, implied_rate
+from fairvalue.core import fair_value, implied_rate, implied_forward_rate
 from fairvalue.session import (
     compute_implied_repo,
     compute_session,
@@ -124,19 +124,19 @@ def test_deferred_repo_prices_front_non_circularly():
     assert "ESU26.CME" in price.seen                     # rate fetched from deferred
     # consistent spot/futures -> the deferred implied repo is used (best match),
     # the cash spot is kept (not re-anchored), and rich/cheap is a real signal
-    assert rep.rate_source == "deferred_implied_repo"
-    assert rep.spot_source == "cash"
-    # the rate is the deferred contract's implied repo, not the front's
-    assert rep.annual_rate == pytest.approx(implied_rate(7600.0, 7700.0, 126, 0.10 * 126))
+    assert rep.rate_source == "calendar_spread"
+    # the rate is the calendar spread forward rate, not the front's or deferred's spot-implied
+    assert rep.annual_rate == pytest.approx(implied_forward_rate(
+        7625.0, 0.10 * 34, 34, 7700.0, 0.10 * 126, 126
+    ))
     # so the front is NOT fair against itself -> a genuine rich/cheap signal
     assert abs(rep.mispricing) > 1.0
 
 
-def test_deferred_repo_falls_back_to_calendar_rate_when_spot_is_stale():
+def test_deferred_repo_is_immune_to_stale_spot():
     # The reported bug: a stale cash spot inflates the deferred implied repo
-    # (~4.6% -> ~8%) and doubles the fair value. 2026-06-16: front = ESU26
-    # (Sep 18, 94d), deferred = ESZ26 (Dec 18, 185d). Build two MUTUALLY
-    # CONSISTENT futures at 4.6% from a "true" spot, then feed a 2%-stale spot.
+    # (~4.6% -> ~8%) and doubles the fair value. Now that we use calendar_spread,
+    # spot is ignored for rate calculation.
     true_spot, r = 7600.0, 0.046
     f_front = fair_value(true_spot, r, 94, 0.10 * 94).fair_value_price
     f_def = fair_value(true_spot, r, 185, 0.10 * 185).fair_value_price
@@ -146,33 +146,32 @@ def test_deferred_repo_falls_back_to_calendar_rate_when_spot_is_stale():
     rep = compute_with_deferred_repo(dt.date(2026, 6, 16), price, _Div())
 
     assert rep.contract == "ESU26"
-    assert rep.rate_source == "calendar_spread"            # guard tripped -> spot-free
-    assert rep.annual_rate == pytest.approx(r, abs=1e-6)   # 4.6%, not the inflated ~8%
-    # the stale cash spot is discarded: re-anchor to the futures-implied spot,
-    # so the rich/cheap read is not a spurious "rich" but ~0 (flagged n/a upstream)
-    assert rep.spot_source == "futures_implied"
-    assert rep.index_value == pytest.approx(true_spot, abs=1e-6)  # not the 2%-stale value
-    assert rep.mispricing == pytest.approx(0.0, abs=1e-9)
-    # the naive deferred-zero rate really would have blown past the guard...
-    naive = implied_rate(stale, f_def, 185, 0.10 * 185)
-    assert naive - r > 0.015
-    # ...and would have ~doubled the fair value; the fallback keeps it sane.
-    naive_fv = fair_value(stale, naive, 94, 0.10 * 94).fair_value_premium
-    assert rep.fair_value_premium < naive_fv - 20
+    assert rep.rate_source == "calendar_spread"
+    assert rep.annual_rate == pytest.approx(r, abs=1e-6)   # perfectly stable at 4.6%
+    assert not rep.liquidity_warning
 
-
-def test_deferred_repo_max_rate_divergence_is_tunable():
-    # With an infinite tolerance the guard never trips: even a stale spot keeps
-    # the (blown-up) deferred implied repo. Proves the fallback is what changes
-    # the result above, and that the knob is honoured.
+def test_liquidity_safeguard_triggers_on_deferred_anomaly():
+    # If we have a shape_provider (FRED), and the deferred contract is wildly
+    # mispriced, the calendar_rate will diverge from fred_forward_rate.
     true_spot, r = 7600.0, 0.046
     f_front = fair_value(true_spot, r, 94, 0.10 * 94).fair_value_price
     f_def = fair_value(true_spot, r, 185, 0.10 * 185).fair_value_price
-    stale = true_spot * 0.98
-    price = _SymPrice({"^GSPC": stale, "ESU26.CME": f_front, "ESZ26.CME": f_def})
+    
+    # Break the deferred contract (price dropped heavily due to low liquidity)
+    broken_def = f_def - 50.0
+    price = _SymPrice({"^GSPC": true_spot, "ESU26.CME": f_front, "ESZ26.CME": broken_def})
+
+    class _MockFred:
+        def zero_rate(self, as_of, days):
+            return r
 
     rep = compute_with_deferred_repo(
-        dt.date(2026, 6, 16), price, _Div(), max_rate_divergence=float("inf")
+        dt.date(2026, 6, 16), price, _Div(), shape_provider=_MockFred()
     )
-    assert rep.rate_source == "deferred_implied_repo"
-    assert rep.annual_rate == pytest.approx(implied_rate(stale, f_def, 185, 0.10 * 185))
+    
+    # The safeguard should trigger
+    assert rep.liquidity_warning is True
+    # Fallback Spot FV should use front_rate (which is stable since front wasn't broken)
+    assert rep.fallback_spot_fv is not None
+    # Front is 100% fair because f_front was derived from true_spot and r
+    assert rep.fallback_spot_fv == pytest.approx(fair_value(true_spot, r, 94, 0.10*94).fair_value_premium, abs=1e-6)

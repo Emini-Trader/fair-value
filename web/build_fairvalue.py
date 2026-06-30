@@ -158,6 +158,8 @@ def build(session: dt.date, price_date: dt.date,
     }
     if rep.curve_shape_adjustment is not None:
         result["curve_shape_adjustment"] = round(rep.curve_shape_adjustment * 100, 3)
+    result["liquidity_warning"] = rep.liquidity_warning
+    result["fallback_spot_fv"] = round(rep.fallback_spot_fv, 2) if rep.fallback_spot_fv is not None else None
     # Funding-turn flag: pure-calendar detection of a quarter-/year-end the front
     # horizon spans, where the carry model can run a touch light (unmodelled
     # turn-of-quarter repo tightening). Detection only -- no market data.

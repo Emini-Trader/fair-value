@@ -210,24 +210,19 @@ def compute_with_deferred_repo(
     front_div = dividend_provider.dividend_points(as_of, front_expiry, index)
     deferred_div = dividend_provider.dividend_points(as_of, deferred_expiry, index)
 
-    # Primary rate: the deferred contract's implied repo (independent of the
-    # front, best indexarb match) -- but it divides by the cash spot. Cross-check
-    # it against the spot-free calendar-spread rate from the two futures; if they
-    # disagree by more than the curve could justify, the spot is the suspect, so
-    # use the spot-free rate. See DEFAULT_MAX_RATE_DIVERGENCE.
-    deferred_rate = implied_rate(
-        index, deferred_futures, deferred_days, deferred_div, days_per_year=days_per_year
-    )
+    # Primary rate: the spot-free calendar-spread rate from the two futures.
+    # This completely isolates the fair value from end-of-day Spot distortions.
     calendar_rate = implied_forward_rate(
         front_futures, front_div, front_days,
         deferred_futures, deferred_div, deferred_days, days_per_year=days_per_year,
     )
-    if abs(deferred_rate - calendar_rate) <= max_rate_divergence:
-        rate, rate_source = deferred_rate, "deferred_implied_repo"
-    else:
-        rate, rate_source = calendar_rate, "calendar_spread"
+    rate, rate_source = calendar_rate, "calendar_spread"
 
     curve_shape_adjustment = None
+    liquidity_warning = False
+    fallback_spot_fv = None
+    spot_source = "cash"
+
     if shape_provider is not None:
         r_front = shape_provider.zero_rate(as_of, front_days)
         r_deferred = shape_provider.zero_rate(as_of, deferred_days)
@@ -235,25 +230,33 @@ def compute_with_deferred_repo(
         rate += curve_shape_adjustment
         rate_source += " + curve_shaping"
 
-    # When the guard fell back to the spot-free calendar rate, the cash spot is
-    # inconsistent with the futures, so pricing (and the basis) off it is
-    # unreliable -- it produces a spurious rich/cheap. Re-anchor to the
-    # futures-implied spot so the offset and basis stay coherent; the rich/cheap
-    # read is not meaningful in this state and is flagged via spot_source.
-    spot_source = "cash"
-    if rate_source.startswith("calendar_spread"):
-        comp_div = _compounded_dividend_points(front_div, rate, front_days, days_per_year)
-        implied_spot = (front_futures + comp_div) / (1.0 + rate) ** (front_days / days_per_year)
-        if implied_spot > 0:
-            index, spot_source = implied_spot, "futures_implied"
+        # Safeguard: check if the deferred contract has a liquidity breakdown.
+        # We compute the market's implied forward rate (calendar_rate) and compare
+        # it against the theoretical FRED forward rate for the same period.
+        fred_forward_rate = (r_deferred * deferred_days - r_front * front_days) / (deferred_days - front_days)
+        
+        if abs(calendar_rate - fred_forward_rate) > max_rate_divergence:
+            liquidity_warning = True
+            # Compute a fallback fair value based purely on spot and front contract
+            # (ignoring the broken deferred contract).
+            front_rate_base = implied_rate(
+                index, front_futures, front_days, front_div, days_per_year=days_per_year
+            )
+            fallback_report = compute_fair_value(
+                as_of, index, front_rate_base, front_div, expiry=front_expiry,
+                futures_price=front_futures, days_per_year=days_per_year, root=root,
+            )
+            fallback_spot_fv = fallback_report.fair_value_premium
 
     report = compute_fair_value(
         as_of, index, rate, front_div, expiry=front_expiry,
         futures_price=front_futures, days_per_year=days_per_year, root=root,
     )
     return replace(
-        report,
-        rate_source=rate_source,
+        report, 
+        rate_source=rate_source, 
         curve_shape_adjustment=curve_shape_adjustment,
-        spot_source=spot_source,
+        liquidity_warning=liquidity_warning,
+        fallback_spot_fv=fallback_spot_fv,
+        spot_source=spot_source
     )

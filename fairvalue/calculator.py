@@ -41,6 +41,8 @@ class FairValueReport:
     mispricing: float | None = None  # futures_price - fair_value_price
     rate_source: str | None = None  # how annual_rate was obtained (provenance)
     curve_shape_adjustment: float | None = None  # adjustment applied to the base rate
+    liquidity_warning: bool = False  # True if deferred future deviated from FRED
+    fallback_spot_fv: float | None = None  # Spot-derived FV if warning is True
     spot_source: str | None = None  # "cash", or "futures_implied" when spot was stale
 
     def __str__(self) -> str:  # pragma: no cover - cosmetic formatting
