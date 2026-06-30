@@ -222,15 +222,14 @@ from .core import (
 )
 from .providers.base import DividendProvider, PriceProvider, RateProvider
 
-#: Default tolerance (decimal) for the liquidity safeguard in
-#: :func:`compute_with_deferred_repo`. The primary financing rate is the
-#: spot-free calendar spread (the implied forward rate between the front and
-#: deferred futures). If this market calendar rate diverges from the theoretical
-#: FRED forward rate by more than this tolerance, it signals that the deferred
-#: contract has suffered a severe liquidity breakdown or mispricing.
-#: 1.5% (0.015) provides a robust buffer against normal market fluctuations
+#: Default tolerance for the liquidity safeguard in
+#: :func:`compute_with_deferred_repo`. The safeguard compares the daily percentage
+#: change (return delta) of the deferred contract with the front contract from the
+#: previous session. If the absolute difference in returns exceeds this tolerance,
+#: it signals a potential liquidity breakdown on the deferred contract.
+#: 0.05% (0.0005) provides a robust buffer against normal market fluctuations
 #: while catching true breakdowns.
-DEFAULT_MAX_RATE_DIVERGENCE: float = 0.015
+DEFAULT_MAX_RETURN_DIVERGENCE: float = 0.0005
 
 
 def _front_future_price(price_provider, expiry, price_date, *, root, fallback):
@@ -349,7 +348,7 @@ def compute_with_deferred_repo(
     front_futures_symbol: str = "ES=F",
     price_date: dt.date | None = None,
     days_per_year: float = DEFAULT_DAYS_PER_YEAR,
-    max_rate_divergence: float = DEFAULT_MAX_RATE_DIVERGENCE,
+    max_return_divergence: float = DEFAULT_MAX_RETURN_DIVERGENCE,
     shape_provider: RateProvider | None = None,
     root: str = "ES",
 ) -> FairValueReport:
@@ -374,9 +373,9 @@ def compute_with_deferred_repo(
     end-of-day spot index anomalies (MOC noise). However, it relies on the pricing
     of the deferred futures contract. If the deferred contract suffers a liquidity
     breakdown and becomes mispriced relative to the front contract, the calendar
-    rate will spike/crash. As a guard, if a ``shape_provider`` is supplied (e.g. FRED),
-    we compute the theoretical forward rate. If the market calendar rate diverges
-    from the theoretical rate by more than ``max_rate_divergence``, we set the
+    rate will spike/crash. As a guard, we compute the percentage price change (return) 
+    since the previous session for both the front and deferred contracts. If their
+    returns diverge by more than ``max_return_divergence``, we set the
     ``liquidity_warning`` flag and compute an emergency ``fallback_spot_fv`` using
     the front contract's implied repo (which relies on spot but ignores the broken
     deferred contract).
@@ -416,23 +415,37 @@ def compute_with_deferred_repo(
         rate += curve_shape_adjustment
         rate_source += " + curve_shaping"
 
-        # Safeguard: check if the deferred contract has a liquidity breakdown.
-        # We compute the market's implied forward rate (calendar_rate) and compare
-        # it against the theoretical FRED forward rate for the same period.
-        fred_forward_rate = (r_deferred * deferred_days - r_front * front_days) / (deferred_days - front_days)
+    # Safeguard: check if the deferred contract has a liquidity breakdown
+    # by comparing its daily return against the front contract.
+    prev_date = price_date - dt.timedelta(days=1)
+    try:
+        front_yesterday = _front_future_price(
+            price_provider, front_expiry, prev_date, root=root, fallback=front_futures_symbol
+        )
+        deferred_symbol = f"{contract_code(deferred_expiry, root=root)}.CME"
+        deferred_yesterday = price_provider.close(deferred_symbol, prev_date)
         
-        if abs(calendar_rate - fred_forward_rate) > max_rate_divergence:
+        front_return = (front_futures - front_yesterday) / front_yesterday
+        deferred_return = (deferred_futures - deferred_yesterday) / deferred_yesterday
+        
+        if abs(front_return - deferred_return) > max_return_divergence:
             liquidity_warning = True
-            # Compute a fallback fair value based purely on spot and front contract
-            # (ignoring the broken deferred contract).
-            front_rate_base = implied_rate(
-                index, front_futures, front_days, front_div, days_per_year=days_per_year
-            )
-            fallback_report = compute_fair_value(
-                as_of, index, front_rate_base, front_div, expiry=front_expiry,
-                futures_price=front_futures, days_per_year=days_per_year, root=root,
-            )
-            fallback_spot_fv = fallback_report.fair_value_premium
+            
+    except Exception: # noqa: BLE001
+        # If we can't fetch yesterday's prices, we can't run the safeguard.
+        pass
+
+    if liquidity_warning:
+        # Compute a fallback fair value based purely on spot and front contract
+        # (ignoring the broken deferred contract).
+        front_rate_base = implied_rate(
+            index, front_futures, front_days, front_div, days_per_year=days_per_year
+        )
+        fallback_report = compute_fair_value(
+            as_of, index, front_rate_base, front_div, expiry=front_expiry,
+            futures_price=front_futures, days_per_year=days_per_year, root=root,
+        )
+        fallback_spot_fv = fallback_report.fair_value_premium
 
     report = compute_fair_value(
         as_of, index, rate, front_div, expiry=front_expiry,

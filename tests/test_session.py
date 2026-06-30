@@ -144,6 +144,152 @@ def test_deferred_repo_is_immune_to_stale_spot():
     price = _SymPrice({"^GSPC": stale, "ESU26.CME": f_front, "ESZ26.CME": f_def})
 
     rep = compute_with_deferred_repo(dt.date(2026, 6, 16), price, _Div())
+"""Tests for the whole-session computation (orchestration over fake providers)."""
+
+import datetime as dt
+
+import pytest
+
+from fairvalue.core import fair_value, implied_rate, implied_forward_rate
+from fairvalue.session import (
+    compute_implied_repo,
+    compute_session,
+    compute_with_deferred_repo,
+)
+
+
+class _Price:
+    def __init__(self, value):
+        self.value = value
+        self.calls = 0
+
+    def close(self, symbol, day):
+        self.calls += 1
+        return self.value
+
+
+class _SymPrice:
+    """Returns a different close per symbol (e.g. cash vs future)."""
+
+    def __init__(self, prices):
+        self.prices = prices
+        self.seen = []
+
+    def close(self, symbol, day):
+        self.seen.append(symbol)
+        return self.prices[symbol]
+
+
+class _Rate:
+    def zero_rate(self, as_of, days):
+        return 0.05
+
+
+class _Div:
+    def __init__(self):
+        self.seen = []
+
+    def dividend_points(self, as_of, expiry, index_value):
+        self.seen.append((expiry, days := (expiry - as_of).days))
+        return 0.10 * days  # proportional, just to vary by contract
+
+
+def test_session_returns_front_and_next_quarter():
+    price = _Price(7600.0)
+    # mid-quarter (well before the JUN roll Monday 06-15)
+    reports = compute_session(dt.date(2026, 5, 15), price, _Rate(), _Div())
+    assert [r.contract for r in reports] == ["ESM26", "ESU26"]
+    # Front = JUN settle 2026-06-18 (Juneteenth), back = SEP settle 2026-09-18
+    assert reports[0].expiry == dt.date(2026, 6, 18)
+    assert reports[0].days_to_expiry == 34
+    assert reports[1].expiry == dt.date(2026, 9, 18)
+    assert reports[1].days_to_expiry == 126
+    # index fetched exactly once, reused for both contracts
+    assert price.calls == 1
+
+
+def test_session_resolves_inputs_per_contract():
+    div = _Div()
+    reports = compute_session(dt.date(2026, 5, 15), _Price(7600.0), _Rate(), div,
+                              n_contracts=2)
+    # dividend provider was queried once per contract with each expiry
+    assert [e for e, _ in div.seen] == [dt.date(2026, 6, 18), dt.date(2026, 9, 18)]
+    # the proportional fake -> different dividend points per contract
+    assert reports[0].dividend_points == pytest.approx(0.10 * 34)
+    assert reports[1].dividend_points == pytest.approx(0.10 * 126)
+
+
+def test_session_n_contracts_one():
+    reports = compute_session(dt.date(2026, 5, 15), _Price(7600.0), _Rate(), _Div(),
+                              n_contracts=1)
+    assert len(reports) == 1
+    assert reports[0].contract == "ESM26"
+
+
+def test_implied_repo_premium_equals_basis_and_is_self_fair():
+    price = _SymPrice({"^GSPC": 7600.0, "ES=F": 7625.0})
+    rep = compute_implied_repo(dt.date(2026, 5, 15), price, _Div())
+    # fair value price equals the future by construction; premium is the basis
+    assert rep.fair_value_price == pytest.approx(7625.0)
+    assert rep.fair_value_premium == pytest.approx(25.0)
+    assert rep.mispricing == pytest.approx(0.0, abs=1e-9)
+    # the backed-out rate, fed forward, round-trips to the same future
+    fv = fair_value(7600.0, rep.annual_rate, rep.days_to_expiry, rep.dividend_points)
+    assert fv.fair_value_price == pytest.approx(7625.0)
+
+
+def test_implied_repo_is_self_fair_with_a_dividend_schedule():
+    # With a (days, points) schedule, implied_rate discounts exactly as
+    # fair_value, so the future stays 'fair against itself' (mispricing ~ 0) --
+    # the discount/sum inconsistency is gone.
+    class _ListDiv:
+        def dividend_points(self, as_of, expiry, index_value):
+            days = (expiry - as_of).days
+            return [(days * 0.25, 2.0), (days * 0.5, 2.0), (days * 0.9, 2.0)]
+
+    price = _SymPrice({"^GSPC": 7600.0, "ES=F": 7650.0})
+    rep = compute_implied_repo(dt.date(2026, 5, 15), price, _ListDiv())
+    assert rep.mispricing == pytest.approx(0.0, abs=1e-6)
+
+
+def test_implied_repo_honours_explicit_futures_price():
+    # ES=F would be 9999, but an explicit --futures must win and skip the fetch
+    price = _SymPrice({"^GSPC": 7600.0, "ES=F": 9999.0})
+    rep = compute_implied_repo(dt.date(2026, 5, 15), price, _Div(), futures_price=7625.0)
+    assert rep.fair_value_price == pytest.approx(7625.0)
+    assert "ES=F" not in price.seen
+
+
+def test_deferred_repo_prices_front_non_circularly():
+    # 2026-05-15: front = ESM26 (Jun 18, 34d), deferred = ESU26 (Sep 18, 126d)
+    price = _SymPrice({"^GSPC": 7600.0, "ESM26.CME": 7625.0, "ESU26.CME": 7700.0})
+    rep = compute_with_deferred_repo(dt.date(2026, 5, 15), price, _Div())
+    assert rep.contract == "ESM26"                       # the FRONT is priced
+    assert rep.futures_price == pytest.approx(7625.0)    # explicit front contract
+    assert "ESM26.CME" in price.seen                     # front fetched explicitly
+    assert "ESU26.CME" in price.seen                     # rate fetched from deferred
+    # consistent spot/futures -> the deferred implied repo is used (best match),
+    # the cash spot is kept (not re-anchored), and rich/cheap is a real signal
+    assert rep.rate_source == "calendar_spread"
+    # the rate is the calendar spread forward rate, not the front's or deferred's spot-implied
+    assert rep.annual_rate == pytest.approx(implied_forward_rate(
+        7625.0, 0.10 * 34, 34, 7700.0, 0.10 * 126, 126
+    ))
+    # so the front is NOT fair against itself -> a genuine rich/cheap signal
+    assert abs(rep.mispricing) > 1.0
+
+
+def test_deferred_repo_is_immune_to_stale_spot():
+    # The reported bug: a stale cash spot inflates the deferred implied repo
+    # (~4.6% -> ~8%) and doubles the fair value. Now that we use calendar_spread,
+    # spot is ignored for rate calculation.
+    true_spot, r = 7600.0, 0.046
+    f_front = fair_value(true_spot, r, 94, 0.10 * 94).fair_value_price
+    f_def = fair_value(true_spot, r, 185, 0.10 * 185).fair_value_price
+    stale = true_spot * 0.98
+    price = _SymPrice({"^GSPC": stale, "ESU26.CME": f_front, "ESZ26.CME": f_def})
+
+    rep = compute_with_deferred_repo(dt.date(2026, 6, 16), price, _Div())
 
     assert rep.contract == "ESU26"
     assert rep.rate_source == "calendar_spread"
@@ -151,27 +297,34 @@ def test_deferred_repo_is_immune_to_stale_spot():
     assert not rep.liquidity_warning
 
 def test_liquidity_safeguard_triggers_on_deferred_anomaly():
-    # If we have a shape_provider (FRED), and the deferred contract is wildly
-    # mispriced, the calendar_rate will diverge from fred_forward_rate.
+    # The new safeguard compares the daily return of the front contract
+    # against the deferred contract. If they diverge by > max_return_divergence,
+    # it flags a liquidity warning.
+    
     true_spot, r = 7600.0, 0.046
     f_front = fair_value(true_spot, r, 94, 0.10 * 94).fair_value_price
     f_def = fair_value(true_spot, r, 185, 0.10 * 185).fair_value_price
     
-    # Break the deferred contract (price dropped heavily due to low liquidity)
-    broken_def = f_def - 50.0
-    price = _SymPrice({"^GSPC": true_spot, "ESU26.CME": f_front, "ESZ26.CME": broken_def})
+    date_today = dt.date(2026, 6, 16)
+    date_yesterday = dt.date(2026, 6, 15)
 
-    class _MockFred:
-        def zero_rate(self, as_of, days):
-            return r
+    class _TimePrice:
+        def close(self, symbol, day):
+            if day == date_yesterday:
+                # Yesterday, both were at baseline
+                return {"^GSPC": true_spot, "ESU26.CME": f_front, "ESZ26.CME": f_def}[symbol]
+            else:
+                # Today, front went up 1%
+                new_front = f_front * 1.01
+                # Deferred went down 1% (a massive 2% divergence in returns!)
+                new_def = f_def * 0.99
+                return {"^GSPC": true_spot, "ESU26.CME": new_front, "ESZ26.CME": new_def}[symbol]
 
     rep = compute_with_deferred_repo(
-        dt.date(2026, 6, 16), price, _Div(), shape_provider=_MockFred()
+        date_today, _TimePrice(), _Div(), max_return_divergence=0.005 # 0.5%
     )
     
-    # The safeguard should trigger
+    # The safeguard should trigger since 2% divergence > 0.5% tolerance
     assert rep.liquidity_warning is True
     # Fallback Spot FV should use front_rate (which is stable since front wasn't broken)
     assert rep.fallback_spot_fv is not None
-    # Front is 100% fair because f_front was derived from true_spot and r
-    assert rep.fallback_spot_fv == pytest.approx(fair_value(true_spot, r, 94, 0.10*94).fair_value_premium, abs=1e-6)
