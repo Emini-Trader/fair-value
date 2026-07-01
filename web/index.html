@@ -59,15 +59,13 @@
 </head>
 <body>
 <div class="wrap">
-  <div style="display: flex; justify-content: space-between; align-items: baseline;">
-    <div>
-      <h1>ES Fair Value</h1>
-      <div class="sub" id="sub-title">S&amp;P 500 cash vs E-mini (ES) index-arbitrage fair value</div>
-    </div>
-    <div class="lang-switch">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+    <h1 style="margin: 0;">ES Fair Value</h1>
+    <div class="lang-switch" style="white-space: nowrap;">
       <a href="#" id="lang-en" onclick="setLang('en'); return false;">EN</a> | <a href="#" id="lang-pl" onclick="setLang('pl'); return false;">PL</a>
     </div>
   </div>
+  <div class="sub" id="sub-title">S&amp;P 500 cash vs E-mini futures (ES) fair value</div>
   <div id="app"><div class="card" id="loading-card">Loading…</div></div>
   <div class="foot" id="foot"></div>
 </div>
@@ -77,7 +75,7 @@ const money = n => (n == null ? "—" : n.toLocaleString("en-US", {minimumFracti
 
 const t = {
   en: {
-    sub: "S&amp;P 500 cash vs E-mini (ES) index-arbitrage fair value",
+    sub: "S&amp;P 500 cash vs E-mini futures (ES) fair value",
     loading: "Loading…",
     errLoad: "Failed to load data.json",
     errCompute: "Could not compute fair value for",
@@ -93,41 +91,41 @@ const t = {
     kDivPts: "Dividend pts",
     kIntComp: "Interest comp.",
     kDivComp: "Dividend comp.",
-    obsFuture: "observed future",
+    obsFuture: "futures settlement",
     basis: "basis",
     alert: "⚠ WARNING: Probable liquidity disconnect on the deferred contract.<br>If FV were computed classically direct from Spot, it would be:",
-    foot1: "Front priced with the calendar spread's implied funding rate (spot-free), from the",
+    foot1: "Front priced with the calendar spread's implied funding rate, from the",
     foot1close: "close.",
-    foot2above: "the observed future is above by:",
-    foot2below: "the observed future is below by:",
-    foot3: "Computed {time} · data: Yahoo Finance · educational use only, not advice.",
+    foot2above: "the futures settlement is above by:",
+    foot2below: "the futures settlement is below by:",
+    foot3: "Computed {time} · data: Yahoo Finance · educational use only.",
     pts: "pts."
   },
   pl: {
-    sub: "Wartość godziwa arbitrażu indeksowego S&amp;P 500 cash vs E-mini (ES)",
+    sub: "Wartość premii dla indeksu S&amp;P 500 cash vs E-mini futures (ES)",
     loading: "Ładowanie…",
     errLoad: "Nie udało się załadować data.json",
     errCompute: "Nie można obliczyć wartości godziwej dla",
     days: "dni",
     exp: "wygasa",
     for: "dla",
-    fvLabel: "Wartość godziwa (premia)",
+    fvLabel: "Fair value (premia)",
     fvPrice: "godziwa cena",
     spot: "spot",
     kRate: "Stopa procentowa",
-    kShape: "korekta kształtu",
+    kShape: "wpływ krzywej rentowności",
     pp: "p.p.",
     kDivPts: "Punkty dywidendowe",
     kIntComp: "Część odsetkowa",
     kDivComp: "Część dywidendowa",
-    obsFuture: "obserwowany future",
+    obsFuture: "futures settlement",
     basis: "baza",
     alert: "⚠ UWAGA: Prawdopodobny rozjazd płynności na odległym kontrakcie (Deferred).<br>Gdyby FV liczone było klasycznie wprost ze Spotu, wynosiłoby:",
-    foot1: "Front wyceniony przy użyciu stopy finansowania ze spreadu kalendarzowego (spot-free), z zamknięcia",
+    foot1: "Front wyceniony na bazie stopy procentowej ze spreadu kalendarzowego z ceny zamknięcia",
     foot1close: "",
-    foot2above: "obserwowany future jest powyżej o:",
-    foot2below: "obserwowany future jest poniżej o:",
-    foot3: "Obliczono {time} · dane: Yahoo Finance · wyłącznie w celach edukacyjnych, to nie jest porada.",
+    foot2above: "settlement dla futures jest wyżej o:",
+    foot2below: "settlement dla futures jest niżej o:",
+    foot3: "Obliczono {time} · dane: Yahoo Finance · wyłącznie w celach edukacyjnych.",
     pts: "pkt."
   }
 };
