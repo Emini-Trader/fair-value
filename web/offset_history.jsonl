@@ -2,3 +2,4 @@
 {"date": "2026-06-25", "dte": 84, "turn": true, "turn_kind": "quarter_end", "model_offset": 61.4, "observed_basis": 65.76, "rate_pct": 4.937, "spot": 7357.49}
 {"date": "2026-06-26", "dte": 81, "turn": true, "turn_kind": "quarter_end", "model_offset": 51.07, "observed_basis": 47.73, "rate_pct": 4.435, "spot": 7354.02}
 {"date": "2026-06-29", "dte": 80, "turn": true, "turn_kind": "quarter_end", "model_offset": 55.36, "observed_basis": 59.82, "rate_pct": 4.695, "spot": 7440.43}
+{"date": "2026-06-30", "dte": 79, "turn": false, "turn_kind": null, "model_offset": 55.12, "observed_basis": 48.89, "rate_pct": 4.676, "spot": 7499.36}
