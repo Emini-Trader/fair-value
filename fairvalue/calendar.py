@@ -75,12 +75,37 @@ def juneteenth_observed(year: int) -> dt.date:
 
 
 def is_exchange_holiday(day: dt.date) -> bool:
-    """Whether US equity markets are closed for a holiday that can coincide with
-    a quarterly 3rd Friday (Good Friday, or Juneteenth from 2022 onward)."""
-    if day == good_friday(day.year):
-        return True
-    if day.year >= 2022 and day == juneteenth_observed(day.year):
-        return True
+    """Whether US equity markets are closed for a holiday."""
+    if day.weekday() >= 5:
+        return False
+        
+    def is_observed(d: dt.date, month: int, day_of_month: int) -> bool:
+        holiday = dt.date(d.year, month, day_of_month)
+        if holiday.weekday() == 5:
+            return d == holiday - dt.timedelta(days=1)
+        elif holiday.weekday() == 6:
+            return d == holiday + dt.timedelta(days=1)
+        return d == holiday
+
+    if is_observed(day, 1, 1): return True
+    if is_observed(day, 7, 4): return True
+    if is_observed(day, 12, 25): return True
+    
+    if day == good_friday(day.year): return True
+    if day.year >= 2022 and day == juneteenth_observed(day.year): return True
+    
+    def is_nth_weekday(d: dt.date, month: int, weekday: int, n: int) -> bool:
+        return d.month == month and d.weekday() == weekday and (d.day - 1) // 7 + 1 == n
+    
+    def is_last_weekday(d: dt.date, month: int, weekday: int) -> bool:
+        return d.month == month and d.weekday() == weekday and (d + dt.timedelta(days=7)).month != month
+
+    if is_nth_weekday(day, 1, 0, 3): return True
+    if is_nth_weekday(day, 2, 0, 3): return True
+    if is_last_weekday(day, 5, 0): return True
+    if is_nth_weekday(day, 9, 0, 1): return True
+    if is_nth_weekday(day, 11, 3, 4): return True
+    
     return False
 
 

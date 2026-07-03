@@ -22,6 +22,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from fairvalue.calendar import (  # noqa: E402
     contract_code,
     funding_turn_in_window,
+    is_exchange_holiday,
     next_quarterly_settlement,
 )
 from fairvalue.session import compute_with_deferred_repo  # noqa: E402
@@ -38,13 +39,13 @@ LOG = pathlib.Path(__file__).resolve().parent / "offset_history.jsonl"
 
 def _next_weekday(day: dt.date) -> dt.date:
     nxt = day + dt.timedelta(days=1)
-    while nxt.weekday() >= 5:  # Sat/Sun -> Monday
+    while nxt.weekday() >= 5 or is_exchange_holiday(nxt):
         nxt += dt.timedelta(days=1)
     return nxt
 
 
 def _latest_weekday(day: dt.date) -> dt.date:
-    while day.weekday() >= 5:
+    while day.weekday() >= 5 or is_exchange_holiday(day):
         day -= dt.timedelta(days=1)
     return day
 
