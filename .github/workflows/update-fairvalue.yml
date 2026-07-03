@@ -7,11 +7,10 @@ name: Update fair value
 
 on:
   schedule:
-    # Run late enough that Yahoo has FINALISED the day's futures candle to its
-    # settlement. Querying during the evening Globex session returns a
-    # provisional futures price that later revises by ~10 pts, which inflates the
-    # implied financing rate (and the fair value).
-    - cron: "0 5 * * 2-6"
+    # GitHub Actions on public repositories often suffer from significant scheduling
+    # delays (proven to be ~4 hours here). To target execution around 05:00 UTC 
+    # (01:00 AM NY time), we schedule it 4 hours early at 01:00 UTC.
+    - cron: "0 1 * * 2-6"
   workflow_dispatch: {}        # allow manual runs from the Actions tab
 
 permissions:
