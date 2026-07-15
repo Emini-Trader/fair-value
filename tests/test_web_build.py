@@ -64,9 +64,11 @@ def test_friday_evening_builds_monday_off_friday():
 
 
 def test_saturday_run_builds_monday_off_friday():
-    pd, s = resolve_dates(_et(2026, 6, 20, 10), D(2026, 6, 19))  # Sat
-    assert pd == D(2026, 6, 19)
-    assert s == D(2026, 6, 22)
+    # Not the 6/19-6/20 weekend: 2026-06-19 is Juneteenth (an exchange
+    # holiday), which would make Thursday 6/18 the actual last close.
+    pd, s = resolve_dates(_et(2026, 6, 13, 10), D(2026, 6, 12))  # Sat
+    assert pd == D(2026, 6, 12)
+    assert s == D(2026, 6, 15)
 
 
 def test_explicit_price_date_backfill_derives_session():

@@ -129,6 +129,55 @@ def test_parse_chart_json_handles_error_payload():
     assert yahoo.parse_chart_json({"chart": {"result": None, "error": {"code": "x"}}}) == []
 
 
+def _et_timestamp(y, m, d, hour, minute=0):
+    from zoneinfo import ZoneInfo
+
+    return int(dt.datetime(y, m, d, hour, minute, tzinfo=ZoneInfo("America/New_York")).timestamp())
+
+
+def test_parse_chart_json_backfills_last_null_close_from_quote():
+    # ^GSPC-style bar: still null hours after the close, but the real-time
+    # quote already carries the settled print for that same session.
+    bar_ts = _et_timestamp(2026, 7, 14, 9, 30)
+    payload = {"chart": {"result": [{
+        "timestamp": [bar_ts],
+        "indicators": {"quote": [{"close": [None]}]},
+        "meta": {
+            "regularMarketPrice": 7543.59,
+            "regularMarketTime": _et_timestamp(2026, 7, 14, 16, 56),
+        },
+    }]}}
+    assert yahoo.parse_chart_json(payload) == [(dt.date(2026, 7, 14), pytest.approx(7543.59))]
+
+
+def test_parse_chart_json_does_not_backfill_from_a_still_open_quote():
+    # The quote timestamp is intraday (before the 16:00 ET close) -- not a
+    # settled close yet, so the bar should stay dropped, not backfilled.
+    bar_ts = _et_timestamp(2026, 7, 14, 9, 30)
+    payload = {"chart": {"result": [{
+        "timestamp": [bar_ts],
+        "indicators": {"quote": [{"close": [None]}]},
+        "meta": {
+            "regularMarketPrice": 7500.0,
+            "regularMarketTime": _et_timestamp(2026, 7, 14, 11, 0),
+        },
+    }]}}
+    assert yahoo.parse_chart_json(payload) == []
+
+
+def test_parse_chart_json_does_not_backfill_from_a_different_days_quote():
+    bar_ts = _et_timestamp(2026, 7, 14, 9, 30)
+    payload = {"chart": {"result": [{
+        "timestamp": [bar_ts],
+        "indicators": {"quote": [{"close": [None]}]},
+        "meta": {
+            "regularMarketPrice": 7500.0,
+            "regularMarketTime": _et_timestamp(2026, 7, 13, 16, 56),
+        },
+    }]}}
+    assert yahoo.parse_chart_json(payload) == []
+
+
 def test_chart_url_encodes_symbol_and_window():
     url = yahoo.chart_url("^GSPC", dt.date(2024, 4, 1), dt.date(2024, 4, 15))
     assert "%5EGSPC" in url and "interval=1d" in url and "period1=" in url

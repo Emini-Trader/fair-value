@@ -47,7 +47,14 @@ def chart_url(symbol: str, start: dt.date, end: dt.date) -> str:
 
 
 def parse_chart_json(payload: dict) -> list[tuple[dt.date, float]]:
-    """Parse a Yahoo chart payload into ``(date, close)`` rows (missing dropped)."""
+    """Parse a Yahoo chart payload into ``(date, close)`` rows (missing dropped).
+
+    Yahoo's chart backend commonly leaves the most recent session's close null
+    for hours after the close, even though the real-time quote
+    (``meta.regularMarketPrice``) already carries the final print (observed on
+    ``^GSPC``: still null well into the next morning). When only the LAST bar
+    is null, backfill it from the quote -- see ``_last_close_from_quote``.
+    """
     result_list = payload.get("chart", {}).get("result")
     if not result_list:  # Yahoo error payload (e.g. unknown/delisted symbol)
         return []
@@ -60,7 +67,37 @@ def parse_chart_json(payload: dict) -> list[tuple[dt.date, float]]:
             continue
         day = dt.datetime.fromtimestamp(ts, dt.timezone.utc).date()
         rows.append((day, float(close)))
+    if timestamps and closes and closes[-1] is None:
+        backfill = _last_close_from_quote(result.get("meta") or {}, timestamps[-1])
+        if backfill is not None:
+            rows.append(backfill)
     return rows
+
+
+def _last_close_from_quote(meta: dict, last_bar_ts: int) -> tuple[dt.date, float] | None:
+    """Recover the most recent session's close from the live quote when the
+    chart backend hasn't backfilled it yet.
+
+    Only trusted if the quote's own timestamp (``regularMarketTime``) lands on
+    the same calendar day as the missing bar AND is at/after the 16:00 ET
+    close -- otherwise it could be a still-moving intraday price, not a
+    settled close.
+    """
+    price = meta.get("regularMarketPrice")
+    quote_ts = meta.get("regularMarketTime")
+    if price is None or quote_ts is None:
+        return None
+    try:
+        from zoneinfo import ZoneInfo
+
+        tz: dt.tzinfo = ZoneInfo("America/New_York")
+    except Exception:  # noqa: BLE001 - no tzdata: approximate ET as UTC-5 (EST)
+        tz = dt.timezone(dt.timedelta(hours=-5))
+    bar_day = dt.datetime.fromtimestamp(last_bar_ts, dt.timezone.utc).date()
+    quote_et = dt.datetime.fromtimestamp(quote_ts, dt.timezone.utc).astimezone(tz)
+    if quote_et.date() != bar_day or quote_et.hour < 16:
+        return None
+    return (bar_day, float(price))
 
 
 def close_on_or_before(rows: list[tuple[dt.date, float]], day: dt.date) -> float | None:
