@@ -198,9 +198,12 @@ def test_default_history_falls_back_when_yfinance_returns_empty(monkeypatch):
     assert yahoo.default_history("X", dt.date(2024, 4, 1), dt.date(2024, 4, 15))[0][1] == 2.0
 
 
-def test_default_history_freshens_a_stale_yfinance_tail(monkeypatch):
+def test_default_history_freshens_a_stale_yfinance_tail_for_todays_query(monkeypatch):
     # yfinance has the same underlying lag as the raw chart endpoint: it can
     # simply omit the most recent session rather than returning it as null.
+    # ``end`` here is "today" -- missing yesterday (not just today) is what
+    # should trigger the top-up.
+    monkeypatch.setattr(yahoo, "_et_today", lambda: dt.date(2026, 7, 15))
     monkeypatch.setattr(
         yahoo, "yfinance_history", lambda *a: [(dt.date(2026, 7, 13), 100.0)])
     monkeypatch.setattr(
@@ -210,7 +213,10 @@ def test_default_history_freshens_a_stale_yfinance_tail(monkeypatch):
     assert (dt.date(2026, 7, 14), 105.0) in rows
 
 
-def test_default_history_skips_freshening_when_yfinance_is_already_fresh(monkeypatch):
+def test_default_history_skips_freshening_when_yfinance_covers_yesterday(monkeypatch):
+    # end == today, latest == yesterday: today's own session may still be
+    # open, so a day behind is already as fresh as it can be.
+    monkeypatch.setattr(yahoo, "_et_today", lambda: dt.date(2026, 7, 15))
     monkeypatch.setattr(
         yahoo, "yfinance_history", lambda *a: [(dt.date(2026, 7, 14), 100.0)])
 
@@ -220,6 +226,21 @@ def test_default_history_skips_freshening_when_yfinance_is_already_fresh(monkeyp
     monkeypatch.setattr(yahoo, "urllib_history", boom)
     rows = yahoo.default_history("X", dt.date(2026, 7, 1), dt.date(2026, 7, 15))
     assert rows == [(dt.date(2026, 7, 14), 100.0)]
+
+
+def test_default_history_requires_an_exact_match_for_a_past_target_date(monkeypatch):
+    # end is a specific COMPLETED past session (e.g. resolving one exact
+    # close, as build_fairvalue does for price_date) -- the one-day tolerance
+    # used for "today" queries must not apply here, or a stale prior close
+    # silently gets substituted for the requested day.
+    monkeypatch.setattr(yahoo, "_et_today", lambda: dt.date(2026, 7, 16))
+    monkeypatch.setattr(
+        yahoo, "yfinance_history", lambda *a: [(dt.date(2026, 7, 13), 100.0)])
+    monkeypatch.setattr(
+        yahoo, "urllib_history",
+        lambda *a: [(dt.date(2026, 7, 13), 100.0), (dt.date(2026, 7, 14), 105.0)])
+    rows = yahoo.default_history("X", dt.date(2026, 7, 1), dt.date(2026, 7, 14))
+    assert (dt.date(2026, 7, 14), 105.0) in rows
 
 
 # --- dividends --------------------------------------------------------------
