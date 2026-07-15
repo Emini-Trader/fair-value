@@ -69,18 +69,24 @@ def _latest_common_close(price: YahooPriceProvider, today: dt.date) -> dt.date:
 
 
 #: US cash + equity-index futures settle at 16:00 ET; after this hour the
-#: session's end-of-day data is final. The evening build runs past it, so it can
-#: treat today's close as the last completed session (see resolve_dates).
+#: session's end-of-day data is final. A run landing past it (e.g. an evening
+#: schedule, or a manual run) can treat today's close as the last completed
+#: session (see resolve_dates). The scheduled Action currently runs after
+#: midnight ET instead (see update-fairvalue.yml), so in practice this branch
+#: is not what makes today's close available -- resolve_dates falls through to
+#: pricing off the latest close the feed actually confirms.
 SESSION_CLOSE_ET_HOUR = 17
 
 
 def _now_et() -> dt.datetime:
     """Current time in New York (EST/EDT-aware), tz-aware.
 
-    The build runs in the evening after the US close, so both the New York DATE
-    and whether we are past the close decide which session to price. Falls back
-    to a fixed UTC-5 (EST) clock only if the tz database is unavailable (it is
-    present on the CI runner and any normal install).
+    Both the New York DATE and whether we are past the close decide which
+    session to price (see resolve_dates); the scheduled build currently runs
+    after midnight ET, before the next open, so it is (correctly) never "past
+    the close" for today -- it prices off the most recent prior session
+    instead. Falls back to a fixed UTC-5 (EST) clock only if the tz database is
+    unavailable (it is present on the CI runner and any normal install).
     """
     try:
         from zoneinfo import ZoneInfo
@@ -100,15 +106,19 @@ def resolve_dates(
     """Pick (price_date, session): the NEXT trading session, priced off the last
     COMPLETED session's close.
 
-    Fair value is an end-of-day figure and the Action runs in the evening after
-    the US close. Once we are past the close (``SESSION_CLOSE_ET_HOUR``) on a
-    trading day -- and the feed actually carries today's close -- today is the
-    last completed session, so we price the *next* session off it. Before the
-    close (or if today's close is not posted yet) we price off the most recent
-    prior session instead -- never an intraday value. The output is therefore
-    stable across GitHub's scheduling delay: whether the run lands this evening
-    or after midnight, it yields the same next-session snapshot. Explicit
-    ``price_date`` / ``session`` (manual backfills) win.
+    Fair value is an end-of-day figure, never an intraday value. Once we are
+    past the close (``SESSION_CLOSE_ET_HOUR``) on a trading day -- and the feed
+    actually carries today's close -- today is the last completed session, so
+    we price the *next* session off it (this is the branch an evening run, or
+    a manual run late in the day, takes). Before the close (or if today's
+    close is not posted yet) we price off the most recent prior session
+    instead, bounded by whatever close the feed actually confirms
+    (``latest_common_close``) -- this is the branch the scheduled Action
+    actually takes today, since it runs after midnight ET. The output is
+    therefore stable across GitHub's scheduling delay and across when in the
+    day the build runs: it always yields the same next-session snapshot once
+    the relevant close has settled. Explicit ``price_date`` / ``session``
+    (manual backfills) win.
     """
     today = now_et.date()
     past_close = now_et.hour >= SESSION_CLOSE_ET_HOUR
