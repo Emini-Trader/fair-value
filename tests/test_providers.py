@@ -198,6 +198,30 @@ def test_default_history_falls_back_when_yfinance_returns_empty(monkeypatch):
     assert yahoo.default_history("X", dt.date(2024, 4, 1), dt.date(2024, 4, 15))[0][1] == 2.0
 
 
+def test_default_history_freshens_a_stale_yfinance_tail(monkeypatch):
+    # yfinance has the same underlying lag as the raw chart endpoint: it can
+    # simply omit the most recent session rather than returning it as null.
+    monkeypatch.setattr(
+        yahoo, "yfinance_history", lambda *a: [(dt.date(2026, 7, 13), 100.0)])
+    monkeypatch.setattr(
+        yahoo, "urllib_history",
+        lambda *a: [(dt.date(2026, 7, 13), 100.0), (dt.date(2026, 7, 14), 105.0)])
+    rows = yahoo.default_history("X", dt.date(2026, 7, 1), dt.date(2026, 7, 15))
+    assert (dt.date(2026, 7, 14), 105.0) in rows
+
+
+def test_default_history_skips_freshening_when_yfinance_is_already_fresh(monkeypatch):
+    monkeypatch.setattr(
+        yahoo, "yfinance_history", lambda *a: [(dt.date(2026, 7, 14), 100.0)])
+
+    def boom(*_):
+        raise AssertionError("should not need a freshening call")
+
+    monkeypatch.setattr(yahoo, "urllib_history", boom)
+    rows = yahoo.default_history("X", dt.date(2026, 7, 1), dt.date(2026, 7, 15))
+    assert rows == [(dt.date(2026, 7, 14), 100.0)]
+
+
 # --- dividends --------------------------------------------------------------
 
 def test_estimate_dividend_points_from_yield():
