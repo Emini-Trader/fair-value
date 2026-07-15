@@ -185,6 +185,16 @@ def urllib_history(
     raise RuntimeError(f"failed to fetch {symbol} from Yahoo")  # pragma: no cover
 
 
+def _et_today() -> dt.date:
+    """Today's date in New York, tz-aware (module-level so tests can patch it)."""
+    try:
+        from zoneinfo import ZoneInfo
+
+        return dt.datetime.now(ZoneInfo("America/New_York")).date()
+    except Exception:  # noqa: BLE001 - no tzdata: approximate ET as UTC-5 (EST)
+        return (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=5)).date()
+
+
 def _freshen_recent_close(
     symbol: str, rows: list[tuple[dt.date, float]], end: dt.date
 ) -> list[tuple[dt.date, float]]:
@@ -197,10 +207,17 @@ def _freshen_recent_close(
     logic for yfinance, just pull one more short window through the chart API
     (whose ``parse_chart_json`` already recovers a not-yet-backfilled close
     from the live quote) and merge in anything newer than what we have.
+
+    ``end == today`` tolerates being a day behind (today's own session may
+    genuinely still be open, so there's nothing to chase yet); any ``end``
+    that is a specific PAST day -- e.g. a caller resolving one exact
+    session's close -- must be matched exactly, or a stale prior close gets
+    silently substituted for it.
     """
     latest = max((d for d, _ in rows), default=None)
-    if latest is not None and latest >= end - dt.timedelta(days=1):
-        return rows  # already covers yesterday or today -- nothing to chase
+    tolerance = dt.timedelta(days=1) if end >= _et_today() else dt.timedelta(0)
+    if latest is not None and latest >= end - tolerance:
+        return rows  # already as fresh as it can be for this target date
     try:
         fresh = urllib_history(symbol, end - dt.timedelta(days=5), end)
     except Exception:  # noqa: BLE001 - best-effort top-up, keep what we had
