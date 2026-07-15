@@ -185,12 +185,37 @@ def urllib_history(
     raise RuntimeError(f"failed to fetch {symbol} from Yahoo")  # pragma: no cover
 
 
+def _freshen_recent_close(
+    symbol: str, rows: list[tuple[dt.date, float]], end: dt.date
+) -> list[tuple[dt.date, float]]:
+    """Top up ``rows`` with a fresher trailing close if one is available.
+
+    yfinance's ``Ticker.history`` has the same underlying lag as the raw chart
+    endpoint (it simply omits a day whose close isn't posted yet, rather than
+    returning it as null) -- so it can be missing the most recent session even
+    though the quote already has it. Rather than duplicate quote-fallback
+    logic for yfinance, just pull one more short window through the chart API
+    (whose ``parse_chart_json`` already recovers a not-yet-backfilled close
+    from the live quote) and merge in anything newer than what we have.
+    """
+    latest = max((d for d, _ in rows), default=None)
+    if latest is not None and latest >= end - dt.timedelta(days=1):
+        return rows  # already covers yesterday or today -- nothing to chase
+    try:
+        fresh = urllib_history(symbol, end - dt.timedelta(days=5), end)
+    except Exception:  # noqa: BLE001 - best-effort top-up, keep what we had
+        return rows
+    have = {d for d, _ in rows}
+    extra = [(d, c) for d, c in fresh if d not in have]
+    return rows + extra if extra else rows
+
+
 def default_history(symbol: str, start: dt.date, end: dt.date) -> list[tuple[dt.date, float]]:
     """yfinance if available and non-empty, else the stdlib urllib chart fallback."""
     try:
         rows = yfinance_history(symbol, start, end)
         if rows:
-            return rows
+            return _freshen_recent_close(symbol, rows, end)
     except Exception:  # noqa: BLE001 - missing/blocked yfinance -> urllib fallback
         pass
     return urllib_history(symbol, start, end)
