@@ -27,3 +27,4 @@
 {"date": "2026-07-31", "dte": 46, "turn": false, "turn_kind": null, "model_offset": 28.67, "observed_basis": 29.53, "rate_pct": 4.621, "spot": 7489.72}
 {"date": "2026-08-03", "dte": 45, "turn": false, "turn_kind": null, "model_offset": 28.21, "observed_basis": 27.75, "rate_pct": 4.595, "spot": 7600.5}
 {"date": "2026-08-05", "dte": 43, "turn": false, "turn_kind": null, "model_offset": 27.31, "observed_basis": 25.95, "rate_pct": 4.595, "spot": 7723.55}
+{"date": "2026-08-06", "dte": 42, "turn": false, "turn_kind": null, "model_offset": 27.31, "observed_basis": 20.04, "rate_pct": 4.715, "spot": 7709.96}
