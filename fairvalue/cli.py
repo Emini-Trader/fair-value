@@ -49,6 +49,26 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--session", action="store_true",
                    help="print both active quarterly contracts (front + next), "
                         "fetching all inputs (needs network allowlist)")
+    p.add_argument("--implied-repo", action="store_true",
+                   help="back the financing rate out of the live front future "
+                        "(ES=F, or --futures) instead of sourcing a rate; the "
+                        "fair value premium then equals the futures basis "
+                        "(needs network allowlist)")
+    p.add_argument("--deferred-repo", action="store_true",
+                   help="price the FRONT using the funding rate implied by the "
+                        "next (deferred) contract -- independent of the front, so "
+                        "the basis vs fair value is a real rich/cheap signal "
+                        "(needs network allowlist)")
+    p.add_argument("--funding-spread-bps", type=float, default=0.0,
+                   help="optional financing spread in basis points added to the "
+                        "fetched risk-free T-bill rate (default: 0). Only affects "
+                        "--fetch / --session; --implied-repo sources the funding "
+                        "rate from the future itself.")
+    p.add_argument("--prior-close", action="store_true",
+                   help="price off the PRIOR session's close (indexarb's overnight "
+                        "convention: the session-D fair value uses the D-1 close as "
+                        "spot, days/dividends still from D). Affects --implied-repo "
+                        "/ --deferred-repo.")
     return p
 
 
@@ -58,6 +78,11 @@ def _resolve_rate(ns: argparse.Namespace) -> float | None:
     if ns.rate_percent is not None:
         return ns.rate_percent / 100.0
     return None
+
+
+def _prior_close_date(ns: argparse.Namespace) -> dt.date | None:
+    """Prior-calendar-day for --prior-close (close_on_or_before handles weekends)."""
+    return ns.date - dt.timedelta(days=1) if ns.prior_close else None
 
 
 def compute_from_namespace(ns: argparse.Namespace) -> FairValueReport:
@@ -87,18 +112,20 @@ def compute_from_namespace(ns: argparse.Namespace) -> FairValueReport:
 
 
 def _autofill(ns, index, rate, dividends):  # pragma: no cover - needs network
-    from .calendar import days_to_expiry, next_quarterly_settlement
+    from .calendar import days_to_expiry, front_settlement
     from .providers.fred import FredRateProvider
     from .providers.total_return import TotalReturnDividendProvider
     from .providers.yahoo import SPX, YahooPriceProvider
 
     try:
-        expiry = ns.expiry or next_quarterly_settlement(ns.date, on_or_after=True)
+        expiry = ns.expiry or front_settlement(ns.date)
         days = days_to_expiry(ns.date, expiry)
         if index is None:
             index = YahooPriceProvider().close(SPX, ns.date)
         if rate is None:
-            rate = FredRateProvider().zero_rate(ns.date, days)
+            rate = FredRateProvider(
+                funding_spread=ns.funding_spread_bps / 10000.0
+            ).zero_rate(ns.date, days)
         if dividends is None:
             dividends = TotalReturnDividendProvider().dividend_points(
                 ns.date, expiry, index
@@ -119,7 +146,8 @@ def _run_session(ns):  # pragma: no cover - needs network
 
     try:
         return compute_session(
-            ns.date, YahooPriceProvider(), FredRateProvider(),
+            ns.date, YahooPriceProvider(),
+            FredRateProvider(funding_spread=ns.funding_spread_bps / 10000.0),
             TotalReturnDividendProvider(), days_per_year=ns.days_per_year, root=ns.root,
         )
     except Exception as exc:  # noqa: BLE001 - surface a friendly hint
@@ -129,12 +157,60 @@ def _run_session(ns):  # pragma: no cover - needs network
         ) from exc
 
 
+def _run_implied_repo(ns):  # pragma: no cover - needs network
+    from .providers.total_return import TotalReturnDividendProvider
+    from .providers.yahoo import YahooPriceProvider
+    from .session import compute_implied_repo
+
+    try:
+        return compute_implied_repo(
+            ns.date, YahooPriceProvider(), TotalReturnDividendProvider(),
+            futures_price=ns.futures, expiry=ns.expiry,
+            price_date=_prior_close_date(ns),
+            days_per_year=ns.days_per_year, root=ns.root,
+        )
+    except Exception as exc:  # noqa: BLE001 - surface a friendly hint
+        raise SystemExit(
+            f"error: --implied-repo failed ({exc}). Are the data hosts on the "
+            "network allowlist (query1/2.finance.yahoo.com)?"
+        ) from exc
+
+
+def _run_deferred_repo(ns):  # pragma: no cover - needs network
+    from .providers.total_return import TotalReturnDividendProvider
+    from .providers.yahoo import YahooPriceProvider
+    from .session import compute_with_deferred_repo
+
+    try:
+        return compute_with_deferred_repo(
+            ns.date, YahooPriceProvider(), TotalReturnDividendProvider(),
+            front_futures=ns.futures, price_date=_prior_close_date(ns),
+            days_per_year=ns.days_per_year, root=ns.root,
+        )
+    except Exception as exc:  # noqa: BLE001 - surface a friendly hint
+        raise SystemExit(
+            f"error: --deferred-repo failed ({exc}). Are the data hosts on the "
+            "network allowlist (query1/2.finance.yahoo.com)?"
+        ) from exc
+
+
 def main(argv: list[str] | None = None) -> int:
     ns = build_parser().parse_args(argv)
     if ns.session:
         for report in _run_session(ns):
             print(report)
             print()
+        return 0
+    if ns.implied_repo:
+        print("Implied-repo fair value (rate backed out of the front future; "
+              "premium = basis, so the future is fair against itself):\n")
+        print(_run_implied_repo(ns))
+        return 0
+    if ns.deferred_repo:
+        print("Front fair value priced with the next contract's implied funding "
+              "rate (independent of the front -> basis vs fair value is a real "
+              "rich/cheap signal):\n")
+        print(_run_deferred_repo(ns))
         return 0
     report = compute_from_namespace(ns)
     print(report)

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass
+from typing import Iterable, Union
 
 from .calendar import contract_code, days_to_expiry, next_quarterly_settlement
 from .core import DEFAULT_DAYS_PER_YEAR, basis, fair_value, mispricing
@@ -38,6 +39,10 @@ class FairValueReport:
     futures_price: float | None = None  # observed future, if supplied
     observed_basis: float | None = None  # futures_price - index
     mispricing: float | None = None  # futures_price - fair_value_price
+    rate_source: str | None = None  # how annual_rate was obtained (provenance)
+    curve_shape_adjustment: float | None = None  # adjustment applied to the base rate
+    liquidity_warning: bool = False  # True if deferred future return deviated from front
+    fallback_spot_fv: float | None = None  # Spot-derived FV if warning is True
 
     def __str__(self) -> str:  # pragma: no cover - cosmetic formatting
         lines = [
@@ -53,7 +58,8 @@ class FairValueReport:
             f"  fair value price     : {self.fair_value_price:.2f}",
         ]
         if self.futures_price is not None:
-            verdict = "rich" if (self.mispricing or 0) > 0 else "cheap"
+            mp = self.mispricing or 0.0
+            verdict = "fair" if abs(mp) < 0.005 else ("rich" if mp > 0 else "cheap")
             lines += [
                 f"  observed future      : {self.futures_price:.2f}",
                 f"  observed basis       : {self.observed_basis:+.2f}",
@@ -66,7 +72,7 @@ def compute_fair_value(
     as_of: dt.date,
     index_value: float,
     annual_rate: float,
-    dividend_points: float = 0.0,
+    dividend_points: Union[float, Iterable[tuple[float, float]]] = 0.0,
     *,
     expiry: dt.date | None = None,
     futures_price: float | None = None,
@@ -108,6 +114,10 @@ def compute_fair_value(
         observed_basis = basis(futures_price, index_value)
         mp = mispricing(futures_price, fv.fair_value_price)
 
+    total_dividend_points = dividend_points
+    if not isinstance(dividend_points, (int, float)):
+        total_dividend_points = sum(pts for _, pts in dividend_points)
+
     return FairValueReport(
         as_of=as_of,
         expiry=expiry,
@@ -115,7 +125,7 @@ def compute_fair_value(
         days_to_expiry=days,
         index_value=index_value,
         annual_rate=annual_rate,
-        dividend_points=dividend_points,
+        dividend_points=total_dividend_points,
         days_per_year=days_per_year,
         interest_component=fv.interest_component,
         dividend_component=fv.dividend_component,
