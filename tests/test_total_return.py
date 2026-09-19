@@ -34,7 +34,7 @@ def test_seasonal_forward_window_includes_prior_year_dividend():
     pts = tr.seasonal_forward_dividends(
         divs, dt.date(2026, 6, 15), dt.date(2026, 9, 18), years_back=1
     )
-    assert pts == pytest.approx(0.5, abs=1e-9)
+    assert sum(v for _, v in pts) == pytest.approx(0.5, abs=1e-9)
 
 
 def test_seasonal_growth_scaling():
@@ -42,7 +42,7 @@ def test_seasonal_growth_scaling():
     pts = tr.seasonal_forward_dividends(
         divs, dt.date(2026, 6, 15), dt.date(2026, 9, 18), years_back=1, growth=1.06
     )
-    assert pts == pytest.approx(0.53, abs=1e-9)
+    assert sum(v for _, v in pts) == pytest.approx(0.53, abs=1e-9)
 
 
 def test_seasonal_window_excludes_out_of_range_dividend():
@@ -51,7 +51,7 @@ def test_seasonal_window_excludes_out_of_range_dividend():
     pts = tr.seasonal_forward_dividends(
         divs, dt.date(2026, 8, 1), dt.date(2026, 9, 18), years_back=1
     )
-    assert pts == pytest.approx(0.0, abs=1e-9)
+    assert sum(v for _, v in pts) == pytest.approx(0.0, abs=1e-9)
 
 
 class _FakePriceProvider:
@@ -68,7 +68,33 @@ def test_provider_wires_fetch_to_seasonal_estimate():
         _FakePriceProvider(PRICE_ROWS, TR_ROWS), years_back=1
     )
     pts = provider.dividend_points(dt.date(2026, 6, 15), dt.date(2026, 9, 18), 7600.0)
-    assert pts == pytest.approx(0.5, abs=1e-9)
+    assert sum(v for _, v in pts) == pytest.approx(0.5, abs=1e-9)
+
+
+def test_estimate_yoy_growth_measures_two_trailing_windows():
+    divs = [(dt.date(2024, 7, 2), 0.50), (dt.date(2025, 7, 2), 0.55)]
+    # recent (2025-06..2026-06]=0.55, prior (2024-06..2025-06]=0.50 -> +10%
+    assert tr.estimate_yoy_growth(divs, dt.date(2026, 6, 15)) == pytest.approx(1.10)
+
+
+def test_estimate_yoy_growth_falls_back_without_prior_year():
+    divs = [(dt.date(2025, 7, 2), 0.55)]
+    assert tr.estimate_yoy_growth(divs, dt.date(2026, 6, 15)) == 1.0
+
+
+def test_auto_growth_scales_seasonal_estimate():
+    d = dt.date
+    dates = [d(2024, 7, 1), d(2024, 7, 2), d(2025, 7, 1), d(2025, 7, 2), d(2026, 6, 15)]
+    price_rows = [(x, 100.0) for x in dates]
+    # price flat at 100; TR jumps +0.5% (div 0.50) then +0.55% (div 0.55)
+    tr_vals = [200.0, 201.0, 201.0, 201.0 * 1.0055, 201.0 * 1.0055]
+    tr_rows = list(zip(dates, tr_vals))
+    fake = _FakePriceProvider(price_rows, tr_rows)
+    args = (d(2026, 6, 15), d(2026, 9, 18), 7600.0)
+    fixed = tr.TotalReturnDividendProvider(fake, growth=1.0).dividend_points(*args)
+    auto = tr.TotalReturnDividendProvider(fake, growth="auto").dividend_points(*args)
+    assert sum(v for _, v in fixed) == pytest.approx(0.55, abs=1e-9)
+    assert sum(v for _, v in auto) == pytest.approx(0.605, abs=1e-9)  # 0.55 * 1.10 measured growth
 
 
 def test_symbols_distinct():

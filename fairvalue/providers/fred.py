@@ -5,6 +5,13 @@ constant-maturity yields, then interpolates to the exact number of days
 remaining in the futures contract -- the practical, free modern proxy for the
 zero-coupon financing curve referenced in the fair value methodology.
 
+T-bill yields are risk-free and sit *below* the financing rate indexarb uses;
+this provider gives the clean risk-free rate. To source the funding rate
+instead, back it out of the live future with
+:func:`fairvalue.compute_implied_repo` (no constant needed). An optional manual
+``funding_spread`` (off by default) is available for callers who want to add a
+known spread.
+
 Network note: ``fred.stlouisfed.org`` must be on the environment's network
 allowlist. The CSV parsing and rate interpolation are pure and unit-tested; the
 HTTP fetch takes an injectable ``opener`` so it can be tested without a network.
@@ -25,6 +32,16 @@ FRED_TENORS: dict[str, float] = {
     "DGS6MO": 182.0,
     "DGS1": 365.0,
 }
+
+#: Optional financing spread (decimal) added on top of the risk-free T-bill
+#: curve. FRED ``DGS*`` are risk-free Treasury yields, which sit below the rate
+#: at which an arbitrage desk actually finances the basket. This knob is **off
+#: by default** (0.0): a single constant cannot track the funding premium, which
+#: varies 0.5-1.3% by date/tenor. To source the funding rate *without* a
+#: constant, use :func:`fairvalue.compute_implied_repo`, which backs the rate out
+#: of the live future itself. ``funding_spread`` remains available for callers
+#: who want to apply a known manual spread.
+DEFAULT_FUNDING_SPREAD: float = 0.0
 
 Opener = Callable[[str, float], "object"]
 
@@ -84,11 +101,13 @@ class FredRateProvider:
         opener: Opener = _default_opener,
         timeout: float = 15.0,
         lookback_days: int = 10,
+        funding_spread: float = 0.0,
     ) -> None:
         self.tenors = tenors or dict(FRED_TENORS)
         self._opener = opener
         self._timeout = timeout
         self._lookback_days = lookback_days
+        self.funding_spread = funding_spread
 
     def _fetch_latest(self, series_id: str, as_of: dt.date) -> float | None:
         start = as_of - dt.timedelta(days=self._lookback_days)
@@ -109,5 +128,48 @@ class FredRateProvider:
         return points
 
     def zero_rate(self, as_of: dt.date, days: float) -> float:
-        """Interpolated annualised rate (decimal) for ``days`` as of ``as_of``."""
-        return interpolate_rate(self.curve(as_of), days)
+        """Interpolated annualised rate (decimal) for ``days`` as of ``as_of``.
+
+        Adds :attr:`funding_spread` to convert the risk-free T-bill curve into
+        an approximate financing rate (see :data:`DEFAULT_FUNDING_SPREAD`).
+        """
+        return interpolate_rate(self.curve(as_of), days) + self.funding_spread
+
+
+class FredSOFRProvider:
+    """A :class:`~fairvalue.providers.base.RateProvider` backed by FRED's SOFR overnight rate.
+
+    Unlike the Treasury curve, this provider fetches the single overnight SOFR
+    rate (FRED series ``SOFR``) and returns it flat across all horizons. SOFR is
+    the modern risk-free/funding benchmark for derivatives.
+    """
+
+    def __init__(
+        self,
+        *,
+        opener: Opener = _default_opener,
+        timeout: float = 15.0,
+        lookback_days: int = 10,
+        funding_spread: float = 0.0,
+    ) -> None:
+        self._opener = opener
+        self._timeout = timeout
+        self._lookback_days = lookback_days
+        self.funding_spread = funding_spread
+
+    def _fetch_latest(self, series_id: str, as_of: dt.date) -> float | None:
+        start = as_of - dt.timedelta(days=self._lookback_days)
+        url = fred_csv_url(series_id, start, as_of)
+        with self._opener(url, self._timeout) as resp:
+            text = resp.read().decode("utf-8")
+        return latest_value(parse_fred_csv(text))
+
+    def zero_rate(self, as_of: dt.date, days: float) -> float:
+        """Flat annualised rate (decimal) based on overnight SOFR.
+
+        Adds :attr:`funding_spread` to the SOFR rate.
+        """
+        value = self._fetch_latest("SOFR", as_of)
+        if value is None:
+            raise RuntimeError(f"FRED returned no SOFR rate as of {as_of}")
+        return (value / 100.0) + self.funding_spread
