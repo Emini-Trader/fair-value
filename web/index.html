@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ES Fair Value</title>
+<style>
+  :root {
+    --bg: #0b0e14; --card: #141925; --line: #232a3a; --text: #e6e9f0;
+    --muted: #8a93a6; --accent: #5b8cff; --rich: #ff5c6c; --cheap: #2fd47a; --fair: #8a93a6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex; min-height: 100vh; align-items: flex-start; justify-content: center;
+    padding: 32px 16px;
+  }
+  .wrap { width: 100%; max-width: 560px; }
+  h1 { font-size: 15px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+       color: var(--muted); margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+          padding: 22px; margin-bottom: 16px; }
+  .head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+          margin-bottom: 18px; }
+  .head .ct { font-size: 19px; font-weight: 700; }
+  .head .days { color: var(--muted); font-size: 13px; }
+  .fv { text-align: center; padding: 6px 0 14px; }
+  .fv .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+  .fv .num { font-size: 52px; font-weight: 700; font-variant-numeric: tabular-nums;
+             line-height: 1.1; margin: 2px 0; }
+  .fv .price { color: var(--muted); font-size: 13px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line);
+          border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin-top: 8px; }
+  .cell { background: var(--card); padding: 11px 14px; }
+  .cell .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .cell .v { font-size: 16px; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .signal { margin-top: 16px; }
+  .bar { position: relative; height: 8px; background: #0f1422; border-radius: 6px; margin: 14px 0 8px; }
+  .bar .mid { position: absolute; left: 50%; top: -4px; bottom: -4px; width: 2px; background: var(--muted); }
+  .bar .dot { position: absolute; top: -3px; width: 14px; height: 14px; border-radius: 50%;
+              transform: translateX(-50%); transition: left .4s ease; }
+  .badge { display: inline-flex; align-items: baseline; gap: 8px; padding: 6px 12px;
+           border-radius: 999px; font-weight: 700; font-size: 14px; }
+  .badge .tag { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+  .rich { color: var(--rich); } .rich-bg { background: rgba(255,92,108,.13); }
+  .cheap { color: var(--cheap); } .cheap-bg { background: rgba(47,212,122,.13); }
+  .fair2 { color: var(--fair); } .fair-bg { background: rgba(138,147,166,.13); }
+  .foot { color: var(--muted); font-size: 12px; line-height: 1.6; }
+  .foot code { color: var(--text); background: #0f1422; padding: 1px 6px; border-radius: 5px; }
+  .err { color: var(--rich); }
+  a { color: var(--accent); text-decoration: none; }
+  .lang-switch { font-size: 13px; font-weight: 600; color: var(--muted); }
+  .lang-switch a { color: var(--muted); padding: 2px 4px; border-radius: 4px; transition: all 0.2s; }
+  .lang-switch a:hover { color: var(--text); }
+  .lang-switch a.active { color: var(--text); background: rgba(255,255,255,0.1); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+    <h1 style="margin: 0;">ES Fair Value</h1>
+    <div class="lang-switch" style="white-space: nowrap;">
+      <a href="#" id="lang-en" onclick="setLang('en'); return false;">EN</a> | <a href="#" id="lang-pl" onclick="setLang('pl'); return false;">PL</a>
+    </div>
+  </div>
+  <div class="sub" id="sub-title">S&amp;P 500 cash vs E-mini futures (ES) fair value</div>
+  <div id="app"><div class="card" id="loading-card">Loading…</div></div>
+  <div class="foot" id="foot"></div>
+</div>
+<script>
+const f = (n, s = true) => (n == null ? "—" : (s && n > 0 ? "+" : "") + n.toFixed(2));
+const money = n => (n == null ? "—" : n.toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2}));
+
+const t = {
+  en: {
+    sub: "S&amp;P 500 cash vs E-mini futures (ES) fair value",
+    loading: "Loading…",
+    errLoad: "Failed to load data.json",
+    errCompute: "Could not compute fair value for",
+    days: "days",
+    exp: "exp",
+    for: "for",
+    fvLabel: "Fair value (premium)",
+    fvPrice: "fair price",
+    spot: "spot",
+    kRate: "Interest rate",
+    kShape: "shape adj",
+    pp: "p.p.",
+    kDivPts: "Dividend pts",
+    kIntComp: "Interest comp.",
+    kDivComp: "Dividend comp.",
+    obsFuture: "futures settlement",
+    basis: "basis",
+    alert: "⚠ WARNING: Probable liquidity disconnect on the deferred contract.<br>If FV were computed classically direct from Spot, it would be:",
+    foot1: "Front priced with the calendar spread's implied funding rate, from the",
+    foot1close: "close.",
+    foot2above: "the futures settlement is above by:",
+    foot2below: "the futures settlement is below by:",
+    foot3: "Computed {time} · data: Yahoo Finance · educational use only.",
+    pts: "pts."
+  },
+  pl: {
+    sub: "Wartość premii dla indeksu S&amp;P 500 cash vs E-mini futures (ES)",
+    loading: "Ładowanie…",
+    errLoad: "Nie udało się załadować data.json",
+    errCompute: "Nie można obliczyć wartości godziwej dla",
+    days: "dni",
+    exp: "wygasa",
+    for: "dla",
+    fvLabel: "Fair value (premia)",
+    fvPrice: "godziwa cena",
+    spot: "spot",
+    kRate: "Stopa procentowa",
+    kShape: "wpływ krzywej rentowności",
+    pp: "p.p.",
+    kDivPts: "Punkty dywidendowe",
+    kIntComp: "Część odsetkowa",
+    kDivComp: "Część dywidendowa",
+    obsFuture: "futures settlement",
+    basis: "baza",
+    alert: "⚠ UWAGA: Prawdopodobny rozjazd płynności na odległym kontrakcie (Deferred).<br>Gdyby FV liczone było klasycznie wprost ze Spotu, wynosiłoby:",
+    foot1: "Front wyceniony na bazie stopy procentowej ze spreadu kalendarzowego z ceny zamknięcia",
+    foot1close: "",
+    foot2above: "settlement dla futures jest wyżej o:",
+    foot2below: "settlement dla futures jest niżej o:",
+    foot3: "Obliczono {time} · dane: Yahoo Finance · wyłącznie w celach edukacyjnych.",
+    pts: "pkt."
+  }
+};
+
+let currentData = null;
+let currentLang = localStorage.getItem('fv_lang') || 'en';
+
+function setLang(lang) {
+  currentLang = lang;
+  localStorage.setItem('fv_lang', lang);
+  document.getElementById('lang-en').className = lang === 'en' ? 'active' : '';
+  document.getElementById('lang-pl').className = lang === 'pl' ? 'active' : '';
+  document.getElementById('sub-title').innerHTML = t[lang].sub;
+  
+  const loadingCard = document.getElementById('loading-card');
+  if (loadingCard) loadingCard.innerHTML = t[lang].loading;
+  
+  if (currentData) render(currentData);
+}
+
+function render(d) {
+  currentData = d;
+  const l = t[currentLang];
+  const app = document.getElementById("app");
+  if (!d.ok) {
+    app.innerHTML = `<div class="card err">${l.errCompute} ${d.session}.<br><small>${d.error||""}</small></div>`;
+    return;
+  }
+  const v = d.verdict, cls = v === "rich" ? "rich" : v === "cheap" ? "cheap" : "fair2";
+  const bg = v === "rich" ? "rich-bg" : v === "cheap" ? "cheap-bg" : "fair-bg";
+  // dot offset: mispricing clamped to a fixed +/- 5 index points scale 
+  // (arbitrage usually triggers well within 2-4 points)
+  const scale = 5.0;
+  const pos = Math.max(2, Math.min(98, 50 + (d.mispricing / scale) * 48));
+  const dotColor = v === "rich" ? "var(--rich)" : v === "cheap" ? "var(--cheap)" : "var(--muted)";
+  
+  const fvColorStyle = d.liquidity_warning ? 'color: var(--rich);' : '';
+  const liquidityAlert = d.liquidity_warning 
+    ? `<div style="color: var(--rich); font-size: 11.5px; margin-top: 6px; font-weight: 600; line-height: 1.3;">${l.alert} ${f(d.fallback_spot_fv)}</div>`
+    : '';
+
+  app.innerHTML = `
+    <div class="card">
+      <div class="head">
+        <div><span class="ct">${d.contract}</span> <span class="days">${d.days_to_expiry} ${l.days} · ${l.exp} ${d.expiry}</span></div>
+        <div class="days">${l.for} ${d.session}</div>
+      </div>
+      <div class="fv">
+        <div class="label">${l.fvLabel}</div>
+        <div class="num" style="${fvColorStyle}">${f(d.fair_value_premium)}</div>
+        <div class="price">${l.fvPrice} ${money(d.fair_value_price)} · ${l.spot} ${money(d.spot)}</div>
+        ${liquidityAlert}
+      </div>
+      <div class="grid">
+        <div class="cell"><div class="k">${l.kRate}</div><div class="v">${d.rate_pct.toFixed(3)}%</div>${d.curve_shape_adjustment != null ? `<div class="k" style="font-size:9px; margin-top:2px;">(${l.kShape}: ${f(d.curve_shape_adjustment, true)} ${l.pp})</div>` : ''}</div>
+        <div class="cell"><div class="k">${l.kDivPts}</div><div class="v">${d.dividend_points.toFixed(2)}</div></div>
+        <div class="cell"><div class="k">${l.kIntComp}</div><div class="v">${f(d.interest_component)}</div></div>
+        <div class="cell"><div class="k">${l.kDivComp}</div><div class="v">${f(-d.dividend_component)}</div></div>
+      </div>
+      <div class="signal">
+        <div class="bar"><div class="mid"></div><div class="dot" style="left:${pos}%;background:${dotColor}"></div></div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span class="days">${l.obsFuture} ${money(d.observed_future)} · ${l.basis} ${f(d.observed_basis)}</span>
+          <span class="badge ${bg} ${cls}"><span class="tag">${v}</span> ${f(d.mispricing)}</span>
+        </div>
+      </div>
+    </div>`;
+  const foot = document.getElementById("foot");
+  const warn = d.warning
+    ? `<div style="color:#e0a64a;background:rgba(224,166,74,.1);border:1px solid rgba(224,166,74,.25);border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:12px">⚠ ${d.warning}</div>`
+    : "";
+    
+  const footText = l.foot3.replace('{time}', d.computed_at);
+  const foot2verb = d.mispricing > 0 ? l.foot2above : l.foot2below;
+  
+  foot.innerHTML = warn + `
+    ${l.foot1} <strong>${d.price_date}</strong> ${l.foot1close}<br>
+    <strong style="color: #fff;">${v}</strong> = ${foot2verb} ${Math.abs(d.mispricing).toFixed(2)} ${l.pts}<br>
+    ${footText}`;
+}
+
+// Initialize Language
+setLang(currentLang);
+
+fetch("data.json?t=" + Date.now())
+  .then(r => r.json()).then(render)
+  .catch(e => document.getElementById("app").innerHTML =
+    `<div class="card err">${t[currentLang].errLoad}<br><small>${e}</small></div>`);
+</script>
+</body>
+</html>
