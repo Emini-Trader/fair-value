@@ -74,3 +74,4 @@
 {"date": "2026-10-08", "dte": 70, "turn": false, "turn_kind": null, "model_offset": 57.92, "observed_basis": 50.89, "rate_pct": 5.175, "spot": 7765.36}
 {"date": "2026-10-09", "dte": 67, "turn": false, "turn_kind": null, "model_offset": 56.56, "observed_basis": 48.21, "rate_pct": 5.197, "spot": 7811.54}
 {"date": "2026-10-12", "dte": 66, "turn": false, "turn_kind": null, "model_offset": 55.44, "observed_basis": 50.76, "rate_pct": 5.198, "spot": 7807.24}
+{"date": "2026-10-13", "dte": 65, "turn": false, "turn_kind": null, "model_offset": 54.16, "observed_basis": 50.3, "rate_pct": 5.186, "spot": 7805.45}
