@@ -8,7 +8,7 @@ the real logic and are unit-tested directly, with no network involved.
 from __future__ import annotations
 
 import datetime as dt
-from typing import Protocol, Sequence, runtime_checkable
+from typing import Protocol, Sequence, runtime_checkable, Union, Iterable
 
 #: A point on a yield curve: (tenor in days, rate as a decimal).
 RatePoint = tuple[float, float]
@@ -34,7 +34,7 @@ class DividendProvider(Protocol):
 
     def dividend_points(
         self, as_of: dt.date, expiry: dt.date, index_value: float
-    ) -> float: ...
+    ) -> Union[float, Iterable[tuple[float, float]]]: ...
 
 
 def interpolate_rate(points: Sequence[RatePoint], target_days: float) -> float:
