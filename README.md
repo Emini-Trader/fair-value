@@ -45,11 +45,16 @@ Notes that match the reference methodology:
 - **Interest / cost of carry** is based on a zero-coupon yield curve (built
   from deposit rates and short-term-rate futures), interpolated to the exact
   number of days remaining. A short T-bill / SOFR rate is a practical modern
-  proxy.
+  proxy — but a *risk-free* one, below the financing rate desks actually pay; to
+  recover the funding rate autonomously, back it out of the live future
+  (`--implied-repo`, see Validation).
 - **Dividends** use actually declared or forecast cash amounts (not yields)
   whose ex-date falls in the remaining life of the contract, normalised by the
-  index divisor. This is more accurate — and more *seasonal* — than a flat
-  dividend-yield approximation.
+  index divisor — exactly indexarb's "by amount" method. This is more accurate
+  — and more *seasonal* — than a flat dividend-yield approximation. The free
+  estimator recovers these amounts as index points from the total-return vs
+  price index, then scales last year's window by the **data-measured** YoY
+  dividend growth (no hand-set constant) — see Validation.
 - **Slippage and friction are intentionally omitted** (arbitrage desks
   minimise both).
 
@@ -126,6 +131,38 @@ yields for the exact days to settlement, and estimates dividend points from the
 seasonal total-return method (`^SP500TR` vs `^GSPC`). Any input you pass
 explicitly (`--index`, `--rate`, `--dividends`, `--expiry`) overrides its fetch.
 
+### Implied repo (`--implied-repo`)
+
+`--fetch` uses a *risk-free* rate; indexarb uses a *funding* rate that sits above
+it. To recover the funding rate with no feed and no constant, back it out of the
+live front future (Yahoo `ES=F`, or `--futures` near roll):
+
+```bash
+python -m fairvalue --date 2026-06-15 --implied-repo
+```
+
+The fair value premium then equals the futures basis and reproduces indexarb's
+published premium to within end-of-day timing noise (see Validation). By the same
+identity the future is fair against itself, so it gives no rich/cheap read.
+
+### Deferred repo — a real rich/cheap signal (`--deferred-repo`)
+
+To get the funding-rate accuracy of implied repo *without* the circularity,
+price the front with the rate implied by the **next** (deferred) contract, which
+is independent of the front:
+
+```bash
+python -m fairvalue --date 2026-06-15 --deferred-repo            # same-day spot
+python -m fairvalue --date 2026-06-15 --deferred-repo --prior-close  # indexarb's
+```
+
+The front fair value is no longer pinned to the front future, so the basis vs
+fair value is a genuine rich/cheap signal. The deferred future carries the same
+market funding rate (within ~0.5% of indexarb on the validation sessions), at
+the cost of not seeing the front's own ~1-month curve hump. Add `--prior-close`
+to reproduce indexarb's overnight convention (session-D fair value off the D-1
+close); see Validation.
+
 ## Validation
 
 Reproduced against indexarb.com's "Fair Value Premium Decomposition" across
@@ -147,6 +184,113 @@ Example — 2026-05-29, S&P 500 spot 7563.63:
 18th — 20 days, not 21. Run `python examples/reproduce_indexarb.py` (prints all
 sessions) and see `tests/test_validation.py`.
 
+### Autonomous accuracy: risk-free vs implied repo (front contract)
+
+The table above feeds indexarb's *own* curve nodes. Sourcing the rate from free
+data is the whole game — input attribution shows almost the entire residual is
+the **rate** (live spot and dividends are already within a few tenths).
+
+A free risk-free T-bill curve (`--fetch`) sits ~0.5–1.3% below indexarb's, so
+the front comes out a few points light. The fix is **not a constant**: indexarb's
+rate runs above the *entire* Treasury curve (out to 2Y) and above what SOFR /
+Fed Funds futures imply, so it is a *funding* rate, not risk-free. Rather than
+guess it, `--implied-repo` backs it out of the live front future itself:
+
+```
+r = ((futures + dividends) / index) ^ (365 / days) − 1
+```
+
+Fully autonomous (live Yahoo `^GSPC` + `ES=F` + dividend estimate), the front
+premium (which then equals the futures basis) vs indexarb's published FV:
+
+| Session    | Front | Days | implied r % | FV (implied repo) | indexarb | Δ      |
+| ---------- | ----- | ---- | ----------- | ----------------- | -------- | ------ |
+| 2026-02-13 | MAR   | 35   | 3.90        | 14.33             | 16.68    | −2.35  |
+| 2026-03-11 | MAR   | 9    | 4.16        | 3.70              | 5.15     | −1.45  |
+| 2026-04-13 | JUN   | 66   | 4.23        | 36.51             | 37.03    | −0.52  |
+| 2026-05-29 | JUN   | 20   | 5.38        | 15.69             | 14.27    | +1.42  |
+
+The implied rate tracks indexarb to within ~0.6% (vs 0.5–1.3% *light* for
+risk-free) and even captures the front turn-hump (5.38% on 05-29, *above*
+indexarb), with **no systematic bias** — the residual ±1–2 points is end-of-day
+timing (Yahoo close vs indexarb's intraday snapshot). The identity's flip side:
+this future is *fair against itself* (mispricing 0 by construction).
+
+#### The rate curve, and the non-circular spot-free model (`--deferred-repo`)
+
+indexarb's published yield curve confirms why no free rate feed reproduces it: it
+is a piecewise-linear **funding** curve (deposit + Eurodollar) through an
+overnight node, a humped ~1-month node (the 5.7% / 7.6% spikes), and **IMM-date
+nodes** (3rd-Wednesday SOFR/Eurodollar-future expiries). The market
+*funding* rate is only recoverable from the futures themselves.
+
+To get that rate **without** the circularity, `--deferred-repo` computes the 
+market funding rate from the **calendar spread** between the front and next 
+(deferred) futures. Because it is calculated purely from the difference between two 
+futures contracts, this rate is completely **spot-free** and immune to end-of-day 
+cash index noise or MOC imbalances. The front contract is then priced with this 
+clean calendar rate, so the basis vs fair value is a real rich/cheap signal.
+
+**Liquidity Safeguard:** Because the calendar rate relies on the deferred contract,
+a severe liquidity breakdown in the distant future could artificially distort the 
+funding rate. The model employs a built-in safeguard: it compares the **daily percentage return**
+(from the prior session's settlement) of the deferred contract against the front contract.
+If the returns diverge by more than 0.05% (~4 index points), the model detects a 
+liquidity fracture, raises a `liquidity_warning`, and calculates an emergency fallback 
+FV based purely on the front contract's implied repo.
+
+Front FV, fully autonomous, vs indexarb:
+
+| Session       | spot (D-1) | rate % | FV (deferred-repo) | indexarb | Δ      |
+| ------------- | ---------- | ------ | ------------------ | -------- | ------ |
+| 2026-02-13    | 6832.76    | 4.46   | 17.08              | 16.68    | +0.40  |
+| 2026-04-13    | 6816.89    | 4.41   | 37.14              | 37.03    | +0.11  |
+| 2026-03-11    | 6781.48    | 4.43   | 3.92               | 5.15     | −1.23  |
+| 2026-05-29    | 7563.63    | 4.73   | 12.75              | 14.27    | −1.52  |
+| 2026-06-03 \* | 7609.78    | 4.66   | 9.24               | 9.93     | −0.69  |
+
+The spot now ties out to indexarb's to the cent. The deferred funding rate
+matches within ~0.5% except on the two days whose front sits on a ~1-month curve
+hump (03-11, 05-29) — a hump no free instrument carries. Non-hump residual is
+**±0.4**; mean −0.59 across the five. `\*` 2026-06-03 is fully **out of sample**
+(only its 9.93 FV was supplied, no curve/dividend page). Unlike front implied
+repo this is **non-circular**, so it is the model to use for a real rich/cheap
+read.
+
+#### Spot-robustness: a stale `^GSPC` can't blow up the rate
+
+The deferred implied repo divides by the cash spot:
+
+```
+r = ((deferred + dividends) / spot) ^ (365 / deferred_days) − 1
+```
+
+The exponent (~3 for a ~120-day deferred) *amplifies* any spot/future
+inconsistency. Yahoo sometimes publishes a stale `^GSPC` against fresh futures;
+the false basis then sent the rate from ~4.6% to ~8% and **doubled** the fair
+value (~65 → ~130). Anchoring dates only papers over it — the amplification is
+inherent to dividing by spot.
+
+The fix uses the same financing rate, measured a second, **spot-free** way: the
+*calendar spread* between the two futures
+(`core.implied_forward_rate`). Writing the fair value identity for each contract
+and dividing makes the cash index cancel:
+
+```
+(1 + r) ^ ((deferred_days − front_days)/365) = (deferred + div_d) / (front + div_f)
+```
+
+so the rate comes purely from the two futures — a stale spot can't touch it.
+`compute_with_deferred_repo` keeps the deferred implied repo as primary (it best
+matches indexarb), but cross-checks it against this spot-free rate; when they
+diverge by more than `max_rate_divergence` (default **1.5%**) — which only
+happens when the spot is inconsistent — it falls back to the spot-free rate and
+flags `rate_source="calendar_spread"`. On all 19 validation sessions the two
+agree to **≤0.3%** (the curve's own slope), an order of magnitude below the
+guard, so every validated number above is unchanged; on the stale-spot incident
+the two diverged by ~3.6% and the fall-back held the rate at ~4.6% (FV ~65). Run
+`examples/validate_fair_value.py` (prints the per-session rate gap).
+
 ## Status / roadmap
 
 - [x] Core fair value math (`fairvalue.core`) — pure, unit-tested.
@@ -154,10 +298,30 @@ sessions) and see `tests/test_validation.py`.
 - [x] High-level calculator + CLI (`fairvalue.calculator`, `fairvalue.cli`).
 - [x] Data providers (`fairvalue.providers`): FRED rates, Yahoo prices,
       dividend estimators — parsing/interpolation unit-tested offline; live
-      fetch pending network allowlist.
+      fetch verified end-to-end (see below).
 - [x] Holiday-aware settlement calendar (Good Friday / Juneteenth roll-back).
+- [x] Front roll on the **Monday of expiration week** (`front_settlement`) —
+      ES open interest rolls to the next contract that Monday, so from then on
+      the "front" is the next quarterly, matching indexarb's listing exactly.
 - [x] Validated against published fair values (indexarb.com, 4 sessions).
 - [x] Autonomous `--fetch`: SPX + rate + dividends with no manual inputs.
+- [x] Live data fetch verified end-to-end with the hosts on the network
+      allowlist — `python examples/live_fetch_demo.py` exercises all three
+      providers (Yahoo + FRED) and prints a full session.
+- [x] `--implied-repo`: backs the financing rate out of the live front future,
+      no rate feed or constant — reproduces indexarb's front premium to within
+      end-of-day timing noise (±1–2 pts) and captures the funding/turn premium
+      that a risk-free rate misses.
+- [x] `--deferred-repo`: prices the front with the next contract's implied
+      funding rate (independent of the front) — non-circular, so it yields a real
+      rich/cheap signal while staying within ~0.5% of indexarb's rate.
+- [x] `--prior-close`: indexarb's overnight convention (session-D fair value off
+      the D-1 close) — ties spot out to indexarb's to the cent; full front FV
+      lands within ±0.4 off the hump days, validated out-of-sample on 2026-06-03.
+- [x] Spot-robust rate (`core.implied_forward_rate`): the deferred implied repo
+      is cross-checked against the spot-free futures calendar spread and falls
+      back to it when a stale `^GSPC` would otherwise inflate the rate (and double
+      the fair value). Validated numbers are unchanged (rates agree to ≤0.3%).
 
 ### Data sources & network access
 
@@ -169,20 +333,42 @@ a close, defensible estimate, not a bit-identical copy:
 | Input          | Source                         | Notes                                              |
 | -------------- | ------------------------------ | -------------------------------------------------- |
 | Index (SPX)    | Yahoo `^GSPC`                  | daily close                                        |
-| Interest rate  | FRED `DGS1MO/3MO/6MO/1`        | T-bill CMT, interpolated to the exact days         |
-| Dividends      | Yahoo `^SP500TR` vs `^GSPC`    | seasonal forward estimate; or `--dividends` manual |
+| Interest rate  | FRED `DGS*` (risk-free) **or** implied repo from `ES=F` | T-bill CMT interpolated; or `--implied-repo` backs the funding rate out of the future |
+| Dividends      | Yahoo `^SP500TR` vs `^GSPC`    | seasonal forward estimate + data-measured YoY growth; or `--dividends` manual |
 | Futures (ES)   | Yahoo `ES=F`                   | continuous front-month, recent years only          |
 
 The biggest accuracy driver is dividends (no free feed of forward dividend
 points); the total-return seasonal method captures ex-date seasonality without
 needing constituent data. See `fairvalue/providers/`.
 
+**Dividend validation.** Against indexarb's published divisor-adjusted dividend
+points across **18 sessions** (2025-01 → 2026-05, two contracts each), the
+total-return estimator with data-measured YoY growth (~7%) tracks the
+*realised* dividends, landing on average ~1 point above indexarb's own figure —
+because indexarb's forecast is itself ~0.7 point below what actually went ex
+(it forecasts only known/announced dividends). The residual is forecast
+uncertainty, not method error. See `examples/` and `tests/test_total_return.py`.
+
 Live auto-fetch needs these hosts on the environment's **network allowlist**
 (egress is restricted by default): `fred.stlouisfed.org`,
-`query1.finance.yahoo.com`, `query2.finance.yahoo.com`. Until then, pass inputs
-manually (the CLI and `compute_fair_value` work fully offline). The live
-providers each accept an injectable `opener`, so their logic stays unit-tested
-without a network. Changing the allowlist takes effect in a **new** session.
+`query1.finance.yahoo.com`, `query2.finance.yahoo.com`. With them allowlisted,
+the full pipeline has been **verified live end-to-end** — e.g. for `2026-06-15`
+`python -m fairvalue --date 2026-06-15 --session` fetches SPX `7431.46` (Yahoo),
+interpolates `3.690%` / `3.781%` (FRED) and estimates `1.37` / `21.27` dividend
+points for the ESM26/ESU26 contracts, with no manual inputs. Re-run the check
+anytime with `python examples/live_fetch_demo.py`. Without the allowlist, pass
+inputs manually (the CLI and `compute_fair_value` work fully offline); the live
+providers accept an injectable fetcher (`history_fn` for Yahoo, `opener` for
+FRED), so their logic stays unit-tested without a network. Changing the allowlist
+takes effect in a **new** session.
+
+**Fetch path.** The core and providers run on the **standard library alone**
+(urllib). The optional `[yahoo]` extra (`pip install -e ".[yahoo]"`) adds
+**yfinance** as a more robust *primary* that handles Yahoo's cookie/crumb churn,
+falling back to urllib when yfinance is unavailable or blocked — e.g. behind a
+proxy, where yfinance's `curl_cffi` transport fails but urllib honours
+`HTTPS_PROXY`. The scheduled snapshot Action installs the extra; either path
+works.
 
 ## Development
 
