@@ -1,0 +1,65 @@
+name: Update fair value
+
+# Recompute the front fair value for the NEXT session in the evening after the
+# US close (fair value is an end-of-day figure -- never intraday), commit the
+# snapshot, and let Vercel redeploy the static page.
+# NOTE: scheduled workflows only run on the repository's DEFAULT branch.
+
+on:
+  schedule:
+    # GitHub Actions on public repositories often suffer from significant scheduling
+    # delays (proven to be ~4 hours here). To target execution around 05:00 UTC 
+    # (01:00 AM NY time), we schedule it 4 hours early at 01:00 UTC.
+    - cron: "0 1 * * 2-6"
+  workflow_dispatch: {}        # allow manual runs from the Actions tab
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fairvalue-snapshot
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}   # always the branch tip, not the trigger SHA
+          fetch-depth: 0                 # full history so rebase-on-push works
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[yahoo]"   # yfinance primary; urllib is the fallback
+      - name: Build snapshot (retry transient feed hiccups, e.g. Yahoo 429)
+        run: |
+          for i in 1 2 3 4 5; do
+            if python web/build_fairvalue.py; then exit 0; fi
+            echo "Build attempt $i failed; retrying in $((i * 30))s…"
+            sleep $((i * 30))
+          done
+          echo "::error::snapshot build failed after 5 attempts"
+          exit 1
+      - name: Commit and push (rebasing onto any concurrent update)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/data.json
+          [ -f web/offset_history.jsonl ] && git add web/offset_history.jsonl
+          if git diff --cached --quiet; then
+            echo "No change to commit."
+            exit 0
+          fi
+          git commit -m "web: update fair value snapshot [skip ci]"
+          for i in 1 2 3 4 5; do
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              echo "Pushed on attempt $i."
+              exit 0
+            fi
+            echo "Push attempt $i rejected; retrying after rebase…"
+            sleep $((i * 2))
+          done
+          echo "::error::Failed to push the snapshot after 5 attempts."
+          exit 1

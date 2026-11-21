@@ -13,7 +13,11 @@ Public API::
 from __future__ import annotations
 
 from .calculator import FairValueReport, compute_fair_value
-from .session import compute_session
+from .session import (
+    compute_implied_repo,
+    compute_session,
+    compute_with_deferred_repo,
+)
 from .core import (
     DEFAULT_DAYS_PER_YEAR,
     FairValueResult,
@@ -21,6 +25,7 @@ from .core import (
     dividend_points_from_cash,
     fair_value,
     implied_dividend_points,
+    implied_forward_rate,
     implied_rate,
     interest_component,
     mispricing,
@@ -32,10 +37,13 @@ __all__ = [
     "FairValueReport",
     "compute_fair_value",
     "compute_session",
+    "compute_implied_repo",
+    "compute_with_deferred_repo",
     "basis",
     "dividend_points_from_cash",
     "fair_value",
     "implied_dividend_points",
+    "implied_forward_rate",
     "implied_rate",
     "interest_component",
     "mispricing",
